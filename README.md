@@ -12,18 +12,22 @@
 
 4. **web 是性能准绳**。目标平台微信小游戏：无 Burst、单线程。性能以云测实测为准（`PhaseTiming` 分解 + PhysicsStats 屏显），每实体 managed 组件调用是首敌（管线走 chunk 迭代）。
 
-5. **行为等价，不是行为克隆**。验收 = PhysicsTest.unity 谓词面板（15 条）全绿 + 对局无回归；与官方的已知偏离（单遍位置投影、无速度求解器、事件真实重叠才发）是取舍，不是缺陷，修订需重新拍板。
+5. **行为等价，不是行为克隆**。验收 = PhysicsTest.unity 谓词面板全绿 + 对局无回归；与官方的已知偏离（单遍位置投影、速度求解仅投机接触一遍——无摩擦无迭代、事件按真实重叠或 SpeculativeMargin 内预测穿透上报）是取舍，不是缺陷，修订需重新拍板。
 
 6. **回退通道保持活性**。API 同形使 manifest 一行即可换回官方包——chessboard 未经受长期对局验证期间，这条退路不许焊死。
+
+7. **影子语义**。碰撞真身 = 棋子在 xz 平面的正投影（**影子**）。三根旋转轴全部以投影形式参与碰撞（躺倒的高件影子变长、倒在哪挡到哪），没有任何一根把碰撞带回 3D；y 回归纯渲染维：遮挡梯子、浮动动画、击飞抛物线零碰撞后果，碰撞只认脚印，永不反向逼迫视觉改 y；接触法线恒水平（y=0），纯 2D，无任何 y 闸门。
+
+8. **投机接触**。间距小于 `PhysicsStep.SpeculativeMargin`（默认 0.1 m）的配对在穿透发生前即产生接触：一遍法向速度解防止本步内按当前速度将要发生的穿透（分离速度封顶 `MaxDynamicDepenetrationVelocity`），碰撞事件按需预发。目的 = 正常玩法零重叠（与官方投机接触同向），不是通用求解器。
 
 ## 明确不做
 
 - Joint / Mesh / Terrain / 多物理世界 / PhysicsShapeAuthoring——本项目零需求面
-- 速度求解器（摩擦锥 / Baumgarte / 冲量迭代）——与单遍位置投影的 web 性能取舍冲突，需要时重新拍板
+- 完整速度求解器（摩擦锥 / Baumgarte / 冲量迭代）——投机接触的一遍法向解已覆盖现需求，更多时重新拍板
 - 行为逐位对齐官方——不可达目标，不做承诺
 
 ## 参照物
 
 - 官方源码副本（形状字典）：`C:\Users\logan\Documents\Unity\physics-reference`
-- 正确性门禁：`survivor/Assets/Scenes/PhysicsTest/`（PhysicsTest.unity + PhysicsTestPanel 15 条谓词 + chessboard-test-scenes.md 底账）
+- 正确性门禁：`survivor/Assets/Scenes/PhysicsTest/`（PhysicsTest.unity + PhysicsTestPanel 谓词）
 - 官方语义对照与消费面底账：survivor 记忆 `project-chessboard-grid-physics-rebuild`

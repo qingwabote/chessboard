@@ -11,6 +11,10 @@ namespace Unity.Physics
             public RigidTransform World;
             public float3 HalfExtents;
             public float Radius;
+            public float2 ShadowCenter;
+            public float2 E0;
+            public float2 E1;
+            public float2 E2;
             public MaterialFlags Flags;
         }
 
@@ -38,13 +42,19 @@ namespace Unity.Physics
             if (collider->Type == ColliderType.Box)
             {
                 var box = (BoxCollider*)collider;
+                var rot = math.mul(world.rot, box->m_Orientation);
+                var pos = world.pos + math.rotate(world.rot, box->m_Center * scale);
+                var half = 0.5f * box->m_Size * scale;
+                var r = new float3x3(rot);
                 leaves.Add(new Leaf
                 {
                     Type = ColliderType.Box,
-                    World = new RigidTransform(
-                        math.mul(world.rot, box->m_Orientation),
-                        world.pos + math.rotate(world.rot, box->m_Center * scale)),
-                    HalfExtents = 0.5f * box->m_Size * scale,
+                    World = new RigidTransform(rot, pos),
+                    HalfExtents = half,
+                    ShadowCenter = pos.xz,
+                    E0 = r.c0.xz * half.x,
+                    E1 = r.c1.xz * half.y,
+                    E2 = r.c2.xz * half.z,
                     Flags = box->m_Header.Material.Flags
                 });
                 return;
@@ -52,12 +62,13 @@ namespace Unity.Physics
             if (collider->Type == ColliderType.Sphere)
             {
                 var sphere = (SphereCollider*)collider;
+                var pos = world.pos + math.rotate(world.rot, sphere->m_Center * scale);
                 leaves.Add(new Leaf
                 {
                     Type = ColliderType.Sphere,
-                    World = new RigidTransform(
-                        world.rot, world.pos + math.rotate(world.rot, sphere->m_Center * scale)),
+                    World = new RigidTransform(world.rot, pos),
                     Radius = sphere->m_Radius * scale,
+                    ShadowCenter = pos.xz,
                     Flags = sphere->m_Header.Material.Flags
                 });
             }
@@ -82,118 +93,218 @@ namespace Unity.Physics
         {
             normal = float3.zero;
             depth = 0f;
-            var delta = a.World.pos - b.World.pos;
+            var delta = a.ShadowCenter - b.ShadowCenter;
             var distSq = math.lengthsq(delta);
             var sum = a.Radius + b.Radius;
             if (distSq >= sum * sum) return false;
             var dist = math.sqrt(distSq);
-            normal = dist > 1e-9f ? delta / dist : new float3(0f, 1f, 0f);
+            normal = dist > 1e-9f ? new float3(delta.x / dist, 0f, delta.y / dist) : new float3(0f, 0f, 1f);
             depth = sum - dist;
             return true;
         }
 
         static bool SphereBox(in Leaf sphere, in Leaf box, out float3 normal, out float depth)
         {
-            normal = float3.zero;
-            depth = 0f;
-            var local = math.rotate(math.inverse(box.World.rot), sphere.World.pos - box.World.pos);
-            var clamped = math.clamp(local, -box.HalfExtents, box.HalfExtents);
-            var delta = local - clamped;
-            var distSq = math.lengthsq(delta);
-            if (distSq > 1e-18f)
+            return CircleShadow(box, sphere.ShadowCenter - box.ShadowCenter, sphere.Radius,
+                out normal, out depth, out _, out _);
+        }
+
+        static float ShadowHalf(in Leaf box, float2 axis)
+        {
+            return math.abs(math.dot(axis, box.E0))
+                + math.abs(math.dot(axis, box.E1))
+                + math.abs(math.dot(axis, box.E2));
+        }
+
+        static bool CircleShadow(in Leaf box, float2 c, float radius, out float3 normal, out float depth, out bool inside, out float2 closestXz)
+        {
+            normal = new float3(0f, 0f, 1f);
+            depth = radius;
+            inside = true;
+            closestXz = box.ShadowCenter + c;
+
+            var minFacetDepth = float.MaxValue;
+            var bestFacet = new float3(0f, 0f, 1f);
+            var bestFacetLocal = new float2(0f, 1f);
+            var generatorCount = 0;
+
+            for (int i = 0; i < 3; i++)
             {
-                if (distSq >= sphere.Radius * sphere.Radius) return false;
-                var dist = math.sqrt(distSq);
-                normal = math.rotate(box.World.rot, delta / dist);
-                depth = sphere.Radius - dist;
+                var e = i == 0 ? box.E0 : i == 1 ? box.E1 : box.E2;
+                var length = math.length(e);
+                if (length < 1e-6f) continue;
+                generatorCount++;
+                var axis = new float2(-e.y, e.x) / length;
+                var half = ShadowHalf(box, axis);
+                var proj = math.dot(axis, c);
+                var absProj = math.abs(proj);
+                if (absProj >= half) inside = false;
+                var facetDepth = half - absProj;
+                if (facetDepth < minFacetDepth)
+                {
+                    minFacetDepth = facetDepth;
+                    var sign = proj < 0f ? -1f : 1f;
+                    bestFacetLocal = axis * sign;
+                    bestFacet = new float3(axis.x * sign, 0f, axis.y * sign);
+                }
+            }
+
+            if (generatorCount == 0)
+            {
+                var dist = math.length(c);
+                depth = radius - dist;
+                if (dist > 1e-9f)
+                {
+                    normal = new float3(c.x / dist, 0f, c.y / dist);
+                    closestXz = box.ShadowCenter;
+                }
+                return depth > 0f;
+            }
+
+            if (inside)
+            {
+                depth = minFacetDepth + radius;
+                normal = bestFacet;
+                closestXz = box.ShadowCenter + c + bestFacetLocal * minFacetDepth;
                 return true;
             }
-            var penetration = box.HalfExtents - math.abs(local);
-            int axis = 0;
-            var minP = penetration.x;
-            if (penetration.y < minP) { minP = penetration.y; axis = 1; }
-            if (penetration.z < minP) { minP = penetration.z; axis = 2; }
-            var localNormal = new float3(
-                axis == 0 ? math.sign(local.x) : 0f,
-                axis == 1 ? math.sign(local.y) : 0f,
-                axis == 2 ? math.sign(local.z) : 0f);
-            normal = math.rotate(box.World.rot, localNormal);
-            depth = sphere.Radius + minP;
-            return true;
+
+            var closest = float2.zero;
+            var dist2 = ShadowEdgeDistance(box, c, out closest);
+            depth = radius - dist2;
+            closestXz = box.ShadowCenter + closest;
+            if (dist2 > 1e-9f)
+            {
+                var dir = (c - closest) / dist2;
+                normal = new float3(dir.x, 0f, dir.y);
+            }
+            else
+            {
+                normal = bestFacet;
+            }
+            return depth > 0f;
+        }
+
+        static float ShadowEdgeDistance(in Leaf box, float2 p, out float2 closest)
+        {
+            closest = p;
+            var g0 = box.E0;
+            var g1 = box.E1;
+            var g2 = box.E2;
+            SortByAngle(ref g0, ref g1);
+            SortByAngle(ref g1, ref g2);
+            SortByAngle(ref g0, ref g1);
+
+            var vertex = -(g0 + g1 + g2);
+            var minDistSq = float.MaxValue;
+            var a = vertex;
+            for (int i = 0; i < 6; i++)
+            {
+                var e = i < 3
+                    ? 2f * (i == 0 ? g0 : i == 1 ? g1 : g2)
+                    : -2f * (i == 3 ? g0 : i == 4 ? g1 : g2);
+                var b = a + e;
+                var abSq = math.lengthsq(e);
+                if (abSq > 1e-12f)
+                {
+                    var t = math.clamp(math.dot(p - a, e) / abSq, 0f, 1f);
+                    var q = a + e * t;
+                    var distSq = math.lengthsq(p - q);
+                    if (distSq < minDistSq)
+                    {
+                        minDistSq = distSq;
+                        closest = q;
+                    }
+                }
+                a = b;
+            }
+            return math.sqrt(minDistSq);
+        }
+
+        static float ShadowAngle(float2 v)
+        {
+            var a = math.atan2(v.y, v.x);
+            return a < 0f ? a + math.PI : a;
+        }
+
+        static void SortByAngle(ref float2 a, ref float2 b)
+        {
+            if (ShadowAngle(a) > ShadowAngle(b))
+            {
+                var t = a;
+                a = b;
+                b = t;
+            }
+        }
+
+        static bool GeneratorAxisAligned(float2 e)
+        {
+            return math.abs(e.x) < 1e-6f || math.abs(e.y) < 1e-6f;
+        }
+
+        static bool ShadowAxisAligned(in Leaf box)
+        {
+            return GeneratorAxisAligned(box.E0) && GeneratorAxisAligned(box.E1) && GeneratorAxisAligned(box.E2);
         }
 
         static bool BoxBox(in Leaf a, in Leaf b, out float3 normal, out float depth)
         {
             normal = float3.zero;
             depth = 0f;
-            var ra = new float3x3(a.World.rot);
-            var rb = new float3x3(b.World.rot);
-            if (IsAxisPermutation(ra) && IsAxisPermutation(rb))
+            if (ShadowAxisAligned(a) && ShadowAxisAligned(b))
             {
                 return AxisAlignedBoxes(a, b, out normal, out depth);
             }
-            return SeparatingAxis(a, b, ra, rb, out normal, out depth);
+            return ShadowSeparatingAxis(a, b, out normal, out depth);
         }
 
-        static bool IsAxisPermutation(float3x3 r)
+        static float2 ShadowHalfXz(in Leaf box)
         {
-            return HasSingleDominantAxis(r.c0) && HasSingleDominantAxis(r.c1) && HasSingleDominantAxis(r.c2);
-        }
-
-        static bool HasSingleDominantAxis(float3 v)
-        {
-            var a = math.abs(v);
-            var max = math.cmax(a);
-            return max > 0.999f && (a.x + a.y + a.z) - max < 0.05f;
-        }
-
-        static float3 WorldHalf(quaternion rot, float3 half)
-        {
-            var r = new float3x3(rot);
-            return math.abs(r.c0) * half.x + math.abs(r.c1) * half.y + math.abs(r.c2) * half.z;
+            return new float2(
+                math.abs(box.E0.x) + math.abs(box.E1.x) + math.abs(box.E2.x),
+                math.abs(box.E0.y) + math.abs(box.E1.y) + math.abs(box.E2.y));
         }
 
         static bool AxisAlignedBoxes(in Leaf a, in Leaf b, out float3 normal, out float depth)
         {
             normal = float3.zero;
             depth = 0f;
-            var ha = WorldHalf(a.World.rot, a.HalfExtents);
-            var hb = WorldHalf(b.World.rot, b.HalfExtents);
-            var d = a.World.pos - b.World.pos;
+            var ha = ShadowHalfXz(a);
+            var hb = ShadowHalfXz(b);
+            var d = a.ShadowCenter - b.ShadowCenter;
             var overlap = ha + hb - math.abs(d);
             if (math.any(overlap < 0f)) return false;
             int axis = 0;
             var minO = overlap.x;
             if (overlap.y < minO) { minO = overlap.y; axis = 1; }
-            if (overlap.z < minO) { minO = overlap.z; axis = 2; }
             normal = new float3(
                 axis == 0 ? math.sign(d.x) : 0f,
-                axis == 1 ? math.sign(d.y) : 0f,
-                axis == 2 ? math.sign(d.z) : 0f);
-            if (math.all(normal == float3.zero)) normal = new float3(0f, 1f, 0f);
+                0f,
+                axis == 1 ? math.sign(d.y) : 0f);
+            if (math.all(normal == float3.zero)) normal = new float3(0f, 0f, 1f);
             depth = minO;
             return true;
         }
 
-        static bool SeparatingAxis(in Leaf a, in Leaf b, float3x3 ra, float3x3 rb, out float3 normal, out float depth)
+        static bool ShadowSeparatingAxis(in Leaf a, in Leaf b, out float3 normal, out float depth)
         {
             normal = float3.zero;
             depth = 0f;
-            var d = b.World.pos - a.World.pos;
-            var aHalf = a.HalfExtents;
-            var bHalf = b.HalfExtents;
+            var la = a;
+            var lb = b;
+            var d = lb.ShadowCenter - la.ShadowCenter;
             var minOverlap = float.MaxValue;
-            var bestAxis = new float3(0f, 1f, 0f);
+            var bestAxis = float2.zero;
+            var testedAny = false;
 
-            bool TestAxis(float3 axis)
+            bool TestAxis(float2 e)
             {
-                var length = math.length(axis);
+                var length = math.length(e);
                 if (length < 1e-6f) return true;
-                axis /= length;
+                testedAny = true;
+                var axis = e / length;
                 var dist = math.abs(math.dot(d, axis));
-                var projA = RadiusOnAxis(ra, aHalf, axis);
-                var projB = RadiusOnAxis(rb, bHalf, axis);
-                var overlap = projA + projB - dist;
+                var overlap = ShadowHalf(la, axis) + ShadowHalf(lb, axis) - dist;
                 if (overlap <= 0f) return false;
                 if (overlap < minOverlap)
                 {
@@ -203,134 +314,142 @@ namespace Unity.Physics
                 return true;
             }
 
-            if (!TestAxis(ra.c0)) return false;
-            if (!TestAxis(ra.c1)) return false;
-            if (!TestAxis(ra.c2)) return false;
-            if (!TestAxis(rb.c0)) return false;
-            if (!TestAxis(rb.c1)) return false;
-            if (!TestAxis(rb.c2)) return false;
-            for (int i = 0; i < 3; i++)
-            {
-                for (int j = 0; j < 3; j++)
-                {
-                    if (!TestAxis(math.cross(ra[i], rb[j]))) return false;
-                }
-            }
+            if (!TestAxis(new float2(-a.E0.y, a.E0.x))) return false;
+            if (!TestAxis(new float2(-a.E1.y, a.E1.x))) return false;
+            if (!TestAxis(new float2(-a.E2.y, a.E2.x))) return false;
+            if (!TestAxis(new float2(-b.E0.y, b.E0.x))) return false;
+            if (!TestAxis(new float2(-b.E1.y, b.E1.x))) return false;
+            if (!TestAxis(new float2(-b.E2.y, b.E2.x))) return false;
 
-            if (math.dot(bestAxis, d) > 0f)
+            if (!testedAny)
             {
-                bestAxis = -bestAxis;
+                normal = new float3(0f, 0f, 1f);
+                depth = 0f;
+                return true;
             }
-            normal = bestAxis;
+            var sign = math.dot(bestAxis, d) > 0f ? -1f : 1f;
+            normal = new float3(bestAxis.x * sign, 0f, bestAxis.y * sign);
             depth = minOverlap;
             return true;
-        }
-
-        static float RadiusOnAxis(float3x3 r, float3 half, float3 axis)
-        {
-            return math.abs(math.dot(axis, r.c0)) * half.x
-                + math.abs(math.dot(axis, r.c1)) * half.y
-                + math.abs(math.dot(axis, r.c2)) * half.z;
         }
 
         internal static Aabb LeafAabb(in Leaf leaf)
         {
             if (leaf.Type == ColliderType.Sphere)
             {
-                return new Aabb { Min = leaf.World.pos - leaf.Radius, Max = leaf.World.pos + leaf.Radius };
+                return new Aabb
+                {
+                    Min = new float3(leaf.ShadowCenter.x - leaf.Radius, 0f, leaf.ShadowCenter.y - leaf.Radius),
+                    Max = new float3(leaf.ShadowCenter.x + leaf.Radius, 0f, leaf.ShadowCenter.y + leaf.Radius)
+                };
             }
-            var r = new float3x3(leaf.World.rot);
-            var worldHalf = math.abs(r.c0) * leaf.HalfExtents.x + math.abs(r.c1) * leaf.HalfExtents.y + math.abs(r.c2) * leaf.HalfExtents.z;
-            return new Aabb { Min = leaf.World.pos - worldHalf, Max = leaf.World.pos + worldHalf };
+            var half = ShadowHalfXz(leaf);
+            return new Aabb
+            {
+                Min = new float3(leaf.ShadowCenter.x - half.x, 0f, leaf.ShadowCenter.y - half.y),
+                Max = new float3(leaf.ShadowCenter.x + half.x, 0f, leaf.ShadowCenter.y + half.y)
+            };
         }
 
         internal static float PointLeafDistance(in Leaf leaf, float3 point, out float3 surfaceNormal, out float3 closestPoint)
         {
-            surfaceNormal = new float3(0f, 1f, 0f);
+            surfaceNormal = new float3(0f, 0f, 1f);
             closestPoint = point;
             if (leaf.Type == ColliderType.Sphere)
             {
-                var delta = point - leaf.World.pos;
+                var delta = point.xz - leaf.ShadowCenter;
                 var dist = math.length(delta);
                 if (dist > 1e-9f)
                 {
-                    surfaceNormal = delta / dist;
+                    surfaceNormal = new float3(delta.x / dist, 0f, delta.y / dist);
+                    closestPoint = new float3(
+                        leaf.ShadowCenter.x + surfaceNormal.x * leaf.Radius,
+                        0f,
+                        leaf.ShadowCenter.y + surfaceNormal.z * leaf.Radius);
                 }
-                closestPoint = leaf.World.pos + surfaceNormal * leaf.Radius;
                 return dist - leaf.Radius;
             }
-            var local = math.rotate(math.inverse(leaf.World.rot), point - leaf.World.pos);
-            var clamped = math.clamp(local, -leaf.HalfExtents, leaf.HalfExtents);
-            var delta2 = local - clamped;
-            if (math.lengthsq(delta2) > 1e-18f)
-            {
-                var d = math.length(delta2);
-                surfaceNormal = math.rotate(leaf.World.rot, delta2 / d);
-                closestPoint = leaf.World.pos + math.rotate(leaf.World.rot, clamped);
-                return d;
-            }
-            var penetration = leaf.HalfExtents - math.abs(local);
-            int axis = 0;
-            var minP = penetration.x;
-            if (penetration.y < minP) { minP = penetration.y; axis = 1; }
-            if (penetration.z < minP) { minP = penetration.z; axis = 2; }
-            var localNormal = new float3(
-                axis == 0 ? math.sign(local.x) : 0f,
-                axis == 1 ? math.sign(local.y) : 0f,
-                axis == 2 ? math.sign(local.z) : 0f);
-            if (math.all(localNormal == float3.zero)) localNormal = new float3(0f, 1f, 0f);
-            surfaceNormal = math.rotate(leaf.World.rot, localNormal);
-            return -minP;
+            var c = point.xz - leaf.ShadowCenter;
+            CircleShadow(leaf, c, 0f, out surfaceNormal, out var depth, out _, out var closestXz);
+            closestPoint = new float3(closestXz.x, 0f, closestXz.y);
+            return -depth;
         }
 
         internal static float LeafPairDistance(in Leaf a, in Leaf b, out float3 normalAToB)
         {
-            normalAToB = new float3(0f, 1f, 0f);
-            var delta = b.World.pos - a.World.pos;
+            normalAToB = new float3(0f, 0f, 1f);
+            var delta = b.ShadowCenter - a.ShadowCenter;
             if (a.Type == ColliderType.Sphere && b.Type == ColliderType.Sphere)
             {
                 var dist = math.length(delta);
-                if (dist > 1e-9f) normalAToB = delta / dist;
+                if (dist > 1e-9f) normalAToB = new float3(delta.x / dist, 0f, delta.y / dist);
                 return dist - a.Radius - b.Radius;
             }
             if (a.Type == ColliderType.Sphere || b.Type == ColliderType.Sphere)
             {
                 var sphere = a.Type == ColliderType.Sphere ? a : b;
                 var box = a.Type == ColliderType.Sphere ? b : a;
-                var dist = PointLeafDistance(box, sphere.World.pos, out var boxNormal, out _);
+                var spherePoint = new float3(sphere.ShadowCenter.x, 0f, sphere.ShadowCenter.y);
+                var dist = PointLeafDistance(box, spherePoint, out var boxNormal, out _);
                 normalAToB = a.Type == ColliderType.Sphere ? -boxNormal : boxNormal;
                 return dist - sphere.Radius;
             }
-            var ra = new float3x3(a.World.rot);
-            var rb = new float3x3(b.World.rot);
-            if (IsAxisPermutation(ra) && IsAxisPermutation(rb))
+
+            var bestGap = float.MinValue;
+            var bestAxis = float2.zero;
+            var minOverlap = float.MaxValue;
+            var testedAny = false;
+            var separated = false;
+            var la = a;
+            var lb = b;
+
+            void TestAxis(float2 e)
             {
-                var ha = WorldHalf(a.World.rot, a.HalfExtents);
-                var hb = WorldHalf(b.World.rot, b.HalfExtents);
-                var gap = math.abs(delta) - ha - hb;
-                var separating = math.max(gap, 0f);
-                var overlapping = math.max(-gap, 0f);
-                if (math.any(overlapping > 0f))
+                var length = math.length(e);
+                if (length < 1e-6f) return;
+                testedAny = true;
+                var axis = e / length;
+                var gap = math.abs(math.dot(delta, axis)) - ShadowHalf(la, axis) - ShadowHalf(lb, axis);
+                if (gap > 0f)
                 {
-                    return -math.cmax(overlapping);
+                    separated = true;
+                    if (gap > bestGap)
+                    {
+                        bestGap = gap;
+                        bestAxis = axis;
+                    }
                 }
-                var d = math.length(separating);
-                if (d > 1e-9f)
+                else
                 {
-                    var dir = math.select(float3.zero, math.sign(delta), gap > 0f);
-                    normalAToB = math.normalizesafe(dir, new float3(0f, 1f, 0f));
+                    var overlap = -gap;
+                    if (overlap < minOverlap) minOverlap = overlap;
                 }
-                return d;
             }
-            var aabbA = LeafAabb(a);
-            var aabbB = LeafAabb(b);
-            var aabbGap = math.max(aabbB.Min - aabbA.Max, aabbA.Min - aabbB.Max);
-            var aabbOverlap = math.max(-aabbGap, 0f);
-            if (math.any(aabbOverlap > 0f))
+
+            TestAxis(new float2(-a.E0.y, a.E0.x));
+            TestAxis(new float2(-a.E1.y, a.E1.x));
+            TestAxis(new float2(-a.E2.y, a.E2.x));
+            TestAxis(new float2(-b.E0.y, b.E0.x));
+            TestAxis(new float2(-b.E1.y, b.E1.x));
+            TestAxis(new float2(-b.E2.y, b.E2.x));
+            if (math.lengthsq(delta) > 1e-12f)
             {
-                return -math.cmax(aabbOverlap);
+                TestAxis(delta);
             }
-            return math.length(math.max(aabbGap, 0f));
+
+            if (!testedAny)
+            {
+                var dist = math.length(delta);
+                if (dist > 1e-9f) normalAToB = new float3(delta.x / dist, 0f, delta.y / dist);
+                return dist;
+            }
+            if (separated)
+            {
+                var sign = math.dot(bestAxis, delta) > 0f ? 1f : -1f;
+                normalAToB = new float3(bestAxis.x * sign, 0f, bestAxis.y * sign);
+                return bestGap;
+            }
+            return -minOverlap;
         }
     }
 }

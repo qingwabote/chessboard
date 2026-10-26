@@ -19,6 +19,7 @@ namespace Unity.Physics.Systems
         NativeArray<byte> m_AllFlags;
         NativeArray<byte> m_AllKinematics;
         NativeArray<float> m_AllInvMasses;
+        NativeArray<float3> m_AllLinearVelocities;
         NativeArray<float> m_AllGravityFactors;
         NativeArray<float> m_AllDampingLinear;
         NativeArray<float> m_AllDampingAngular;
@@ -40,6 +41,7 @@ namespace Unity.Physics.Systems
             m_AllFlags = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_AllKinematics = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_AllInvMasses = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_AllLinearVelocities = new NativeArray<float3>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_AllGravityFactors = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_AllDampingLinear = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_AllDampingAngular = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
@@ -78,6 +80,7 @@ namespace Unity.Physics.Systems
             if (m_AllFlags.IsCreated) m_AllFlags.Dispose();
             if (m_AllKinematics.IsCreated) m_AllKinematics.Dispose();
             if (m_AllInvMasses.IsCreated) m_AllInvMasses.Dispose();
+            if (m_AllLinearVelocities.IsCreated) m_AllLinearVelocities.Dispose();
             if (m_AllGravityFactors.IsCreated) m_AllGravityFactors.Dispose();
             if (m_AllDampingLinear.IsCreated) m_AllDampingLinear.Dispose();
             if (m_AllDampingAngular.IsCreated) m_AllDampingAngular.Dispose();
@@ -108,6 +111,7 @@ namespace Unity.Physics.Systems
             EnsureCapacity(ref m_AllFlags, totalCount);
             EnsureCapacity(ref m_AllKinematics, totalCount);
             EnsureCapacity(ref m_AllInvMasses, totalCount);
+            EnsureCapacity(ref m_AllLinearVelocities, totalCount);
             EnsureCapacity(ref m_AllGravityFactors, totalCount);
             EnsureCapacity(ref m_AllDampingLinear, totalCount);
             EnsureCapacity(ref m_AllDampingAngular, totalCount);
@@ -125,6 +129,7 @@ namespace Unity.Physics.Systems
             var flags = m_AllFlags;
             var kinematics = m_AllKinematics;
             var invMasses = m_AllInvMasses;
+            var linearVelocities = m_AllLinearVelocities;
             var gravityFactors = m_AllGravityFactors;
             var dampingLinear = m_AllDampingLinear;
             var dampingAngular = m_AllDampingAngular;
@@ -200,7 +205,7 @@ namespace Unity.Physics.Systems
                         var uniform = math.min(
                             math.length(velocities[i].Angular) * dt * mass.AngularExpansionFactor,
                             mass.AngularExpansionFactor);
-                        var margin = uniform + step.CollisionTolerance * 0.5f;
+                        var margin = uniform + step.CollisionTolerance * 0.5f + step.SpeculativeMargin;
                         var eabb = new Aabb
                         {
                             Min = math.min(aabb.Min, aabb.Min + expandedVelocity * dt) - margin,
@@ -220,6 +225,7 @@ namespace Unity.Physics.Systems
                         flags[index] = (byte)blob->m_Header.Material.Flags;
                         kinematics[index] = mass.IsKinematic ? (byte)1 : (byte)0;
                         invMasses[index] = mass.InverseMass;
+                        linearVelocities[index] = velocities[i].Linear;
                         gravityFactors[index] = gravityFactor;
                         if (hasDamping)
                         {
@@ -294,6 +300,7 @@ namespace Unity.Physics.Systems
                         flags[index] = (byte)blob->m_Header.Material.Flags;
                         kinematics[index] = 1;
                         invMasses[index] = 0f;
+                        linearVelocities[index] = float3.zero;
                         gravityFactors[index] = 0f;
                         dampingLinear[index] = 0f;
                         dampingAngular[index] = 0f;
@@ -382,6 +389,7 @@ namespace Unity.Physics.Systems
                         m_MaterialFlags = m_AllFlags.GetSubArray(0, validTotal),
                         m_Kinematics = m_AllKinematics.GetSubArray(0, validTotal),
                         m_InvMasses = m_AllInvMasses.GetSubArray(0, validTotal),
+                        m_LinearVelocities = m_AllLinearVelocities.GetSubArray(0, validTotal),
                         m_GravityFactors = m_AllGravityFactors.GetSubArray(0, validTotal),
                         m_DampingLinear = m_AllDampingLinear.GetSubArray(0, validTotal),
                         m_DampingAngular = m_AllDampingAngular.GetSubArray(0, validTotal),

@@ -17,6 +17,7 @@ namespace Unity.Physics
         internal NativeArray<byte> m_MaterialFlags;
         internal NativeArray<byte> m_Kinematics;
         internal NativeArray<float> m_InvMasses;
+        internal NativeArray<float3> m_LinearVelocities;
         internal NativeArray<float> m_GravityFactors;
         internal NativeArray<float> m_DampingLinear;
         internal NativeArray<float> m_DampingAngular;
@@ -219,6 +220,7 @@ namespace Unity.Physics
                 {
                     var castLeaf = castLeaves[c];
                     castLeaf.World.pos += direction * travelled;
+                    castLeaf.ShadowCenter += new float2(direction.x, direction.z) * travelled;
                     for (int b = 0; b < bodyLeaves.Length; b++)
                     {
                         if (CollisionTests.TestLeaves(castLeaf, bodyLeaves[b], out var normal, out _))
@@ -244,6 +246,7 @@ namespace Unity.Physics
                 {
                     var castLeaf = castLeaves[c];
                     castLeaf.World.pos += direction * travelled;
+                    castLeaf.ShadowCenter += new float2(direction.x, direction.z) * travelled;
                     for (int b = 0; b < bodyLeaves.Length; b++)
                     {
                         var distance = CollisionTests.LeafPairDistance(castLeaf, bodyLeaves[b], out var normal);
@@ -273,7 +276,8 @@ namespace Unity.Physics
                 if (length <= 1e-9f) break;
                 float projection = math.dot(-bestNormal, direction);
                 if (projection <= 1e-6f) break;
-                travelled += (bestDistance - tolerance) / projection;
+                // 0.5f: fraction of tolerance left as the gap after advancing, so the next-iteration distance (≈ tolerance / 2) strictly clears the `bestDistance < tolerance` hit threshold instead of landing exactly on it and being decided by float rounding. Any fraction safely below 1 works; 0.5 is the half-tolerance idiom (same as the CollisionTolerance margins), not tuned — it caps the hit-fraction error at 0.5 mm.
+                travelled += (bestDistance - tolerance * 0.5f) / projection;
                 if (travelled > length) break;
             }
 
