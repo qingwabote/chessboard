@@ -18,7 +18,6 @@ namespace Unity.Physics
         internal NativeArray<byte> m_Kinematics;
         internal NativeArray<float> m_InvMasses;
         internal NativeArray<float3> m_LinearVelocities;
-        internal NativeArray<float> m_GravityFactors;
         internal NativeArray<float> m_DampingLinear;
         internal NativeArray<float> m_DampingAngular;
         internal int m_NumDynamicBodies;

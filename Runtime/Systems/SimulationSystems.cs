@@ -313,7 +313,6 @@ namespace Unity.Physics.Systems
                 }
             }
 
-            var gravityFactors = collisionWorld.m_GravityFactors;
             var dampingLinear = collisionWorld.m_DampingLinear;
             var dampingAngular = collisionWorld.m_DampingAngular;
             var colliderHandle = SystemAPI.GetComponentTypeHandle<PhysicsCollider>(true);
@@ -336,7 +335,6 @@ namespace Unity.Physics.Systems
 
                     var v = velocities[i];
                     if (hasSpeculative) v.Linear = linearVelocities[bi];
-                    v.Linear += step.Gravity * (gravityFactors[bi] * dt);
 
                     var tr = transforms[i];
                     float3 position = hasContacts ? m_Positions[bi] : tr.Position;

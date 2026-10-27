@@ -20,7 +20,6 @@ namespace Unity.Physics.Systems
         NativeArray<byte> m_AllKinematics;
         NativeArray<float> m_AllInvMasses;
         NativeArray<float3> m_AllLinearVelocities;
-        NativeArray<float> m_AllGravityFactors;
         NativeArray<float> m_AllDampingLinear;
         NativeArray<float> m_AllDampingAngular;
         NativeArray<int> m_CellStart;
@@ -42,7 +41,6 @@ namespace Unity.Physics.Systems
             m_AllKinematics = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_AllInvMasses = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_AllLinearVelocities = new NativeArray<float3>(0, persistent, NativeArrayOptions.UninitializedMemory);
-            m_AllGravityFactors = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_AllDampingLinear = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_AllDampingAngular = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_CellStart = new NativeArray<int>(1024, persistent, NativeArrayOptions.UninitializedMemory);
@@ -81,7 +79,6 @@ namespace Unity.Physics.Systems
             if (m_AllKinematics.IsCreated) m_AllKinematics.Dispose();
             if (m_AllInvMasses.IsCreated) m_AllInvMasses.Dispose();
             if (m_AllLinearVelocities.IsCreated) m_AllLinearVelocities.Dispose();
-            if (m_AllGravityFactors.IsCreated) m_AllGravityFactors.Dispose();
             if (m_AllDampingLinear.IsCreated) m_AllDampingLinear.Dispose();
             if (m_AllDampingAngular.IsCreated) m_AllDampingAngular.Dispose();
             if (m_CellStart.IsCreated) m_CellStart.Dispose();
@@ -112,7 +109,6 @@ namespace Unity.Physics.Systems
             EnsureCapacity(ref m_AllKinematics, totalCount);
             EnsureCapacity(ref m_AllInvMasses, totalCount);
             EnsureCapacity(ref m_AllLinearVelocities, totalCount);
-            EnsureCapacity(ref m_AllGravityFactors, totalCount);
             EnsureCapacity(ref m_AllDampingLinear, totalCount);
             EnsureCapacity(ref m_AllDampingAngular, totalCount);
             if (m_CellSpanMin.Length < totalCount)
@@ -130,7 +126,6 @@ namespace Unity.Physics.Systems
             var kinematics = m_AllKinematics;
             var invMasses = m_AllInvMasses;
             var linearVelocities = m_AllLinearVelocities;
-            var gravityFactors = m_AllGravityFactors;
             var dampingLinear = m_AllDampingLinear;
             var dampingAngular = m_AllDampingAngular;
 
@@ -151,7 +146,6 @@ namespace Unity.Physics.Systems
             {
                 var velocityHandle = SystemAPI.GetComponentTypeHandle<PhysicsVelocity>(true);
                 var massHandle = SystemAPI.GetComponentTypeHandle<PhysicsMass>(true);
-                var gravityHandle = SystemAPI.GetComponentTypeHandle<PhysicsGravityFactor>(true);
                 var dampingHandle = SystemAPI.GetComponentTypeHandle<PhysicsDamping>(true);
                 foreach (var chunk in SystemAPI.QueryBuilder().WithAll<PhysicsCollider, LocalTransform, PhysicsVelocity>().Build().ToArchetypeChunkArray(Allocator.Temp))
                 {
@@ -160,13 +154,11 @@ namespace Unity.Physics.Systems
                     var velocities = chunk.GetNativeArray(ref velocityHandle);
                     var entities = chunk.GetNativeArray(entityHandle);
                     var masses = chunk.GetNativeArray(ref massHandle);
-                    var gravities = chunk.GetNativeArray(ref gravityHandle);
                     var dampings = chunk.GetNativeArray(ref dampingHandle);
                     var worlds = chunk.GetNativeArray(ref localToWorldHandle);
                     bool hasLocal = transforms.IsCreated;
                     bool hasWorld = worlds.IsCreated;
                     bool hasMass = masses.IsCreated;
-                    bool hasGravity = gravities.IsCreated;
                     bool hasDamping = dampings.IsCreated;
                     bool hasParent = chunk.Has(ref parentHandle);
                     for (int i = 0; i < chunk.Count; i++)
@@ -199,17 +191,15 @@ namespace Unity.Physics.Systems
                         var aabb = collider.Value.CalculateAabb(bodyTransform, scale);
 
                         var mass = hasMass ? masses[i] : PhysicsMass.CreateKinematic(MassProperties.UnitSphere);
-                        float gravityFactor = hasGravity ? gravities[i].Value : 1f;
 
-                        var expandedVelocity = velocities[i].Linear + step.Gravity * (gravityFactor * dt);
                         var uniform = math.min(
                             math.length(velocities[i].Angular) * dt * mass.AngularExpansionFactor,
                             mass.AngularExpansionFactor);
                         var margin = uniform + step.CollisionTolerance * 0.5f + step.SpeculativeMargin;
                         var eabb = new Aabb
                         {
-                            Min = math.min(aabb.Min, aabb.Min + expandedVelocity * dt) - margin,
-                            Max = math.max(aabb.Max, aabb.Max + expandedVelocity * dt) + margin
+                            Min = math.min(aabb.Min, aabb.Min + velocities[i].Linear * dt) - margin,
+                            Max = math.max(aabb.Max, aabb.Max + velocities[i].Linear * dt) + margin
                         };
 
                         var blob = (Collider*)collider.Value.GetUnsafePtr();
@@ -226,7 +216,6 @@ namespace Unity.Physics.Systems
                         kinematics[index] = mass.IsKinematic ? (byte)1 : (byte)0;
                         invMasses[index] = mass.InverseMass;
                         linearVelocities[index] = velocities[i].Linear;
-                        gravityFactors[index] = gravityFactor;
                         if (hasDamping)
                         {
                             dampingLinear[index] = dampings[i].Linear;
@@ -301,7 +290,6 @@ namespace Unity.Physics.Systems
                         kinematics[index] = 1;
                         invMasses[index] = 0f;
                         linearVelocities[index] = float3.zero;
-                        gravityFactors[index] = 0f;
                         dampingLinear[index] = 0f;
                         dampingAngular[index] = 0f;
                         var smin = (int2)math.floor(aabb.Min.xz / k_CellSize);
@@ -390,7 +378,6 @@ namespace Unity.Physics.Systems
                         m_Kinematics = m_AllKinematics.GetSubArray(0, validTotal),
                         m_InvMasses = m_AllInvMasses.GetSubArray(0, validTotal),
                         m_LinearVelocities = m_AllLinearVelocities.GetSubArray(0, validTotal),
-                        m_GravityFactors = m_AllGravityFactors.GetSubArray(0, validTotal),
                         m_DampingLinear = m_AllDampingLinear.GetSubArray(0, validTotal),
                         m_DampingAngular = m_AllDampingAngular.GetSubArray(0, validTotal),
                         m_CellStart = m_CellStart,
