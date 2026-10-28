@@ -10,17 +10,8 @@ namespace Unity.Physics
         public Entity Entity;
         public float Scale;
 
-        public static readonly RigidBody Zero = new RigidBody
-        {
-            Collider = BlobAssetReference<Collider>.Null,
-            WorldFromBody = RigidTransform.identity,
-            Entity = Entity.Null,
-            Scale = 1f
-        };
-
         public unsafe Aabb CalculateAabb()
         {
-            if (!Collider.IsCreated) return Aabb.Empty;
             return Collider.CalculateAabb(WorldFromBody, Scale);
         }
     }
@@ -31,7 +22,6 @@ namespace Unity.Physics
         {
             unsafe
             {
-                if (!collider.IsCreated) return Aabb.Empty;
                 return Collider.CalculateAabb((Collider*)collider.GetUnsafePtr(), transform, uniformScale);
             }
         }

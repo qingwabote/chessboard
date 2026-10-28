@@ -12,6 +12,9 @@ namespace Unity.Physics
         public float CollisionTolerance;
 
         internal NativeArray<RigidBody> m_Bodies;
+        internal NativeArray<int> m_BodyIndices;
+        internal NativeArray<int> m_CellBodyIndices;
+
         internal NativeArray<Aabb> m_Eabbs;
         internal NativeArray<CollisionFilter> m_Filters;
         internal NativeArray<byte> m_MaterialFlags;
@@ -20,32 +23,64 @@ namespace Unity.Physics
         internal NativeArray<float3> m_LinearVelocities;
         internal NativeArray<float> m_DampingLinear;
         internal NativeArray<float> m_DampingAngular;
+        internal int m_NumBodies;
         internal int m_NumDynamicBodies;
-        internal NativeArray<int> m_CellStart;
-        internal NativeArray<int> m_CellOrder;
-        internal int2 m_GridMinCell;
-        internal int2 m_GridCount;
+        internal int2 m_GridMin;
+        internal int2 m_GridSize;
         internal float m_CellSize;
 
-        public int NumBodies => m_Bodies.IsCreated ? m_Bodies.Length : 0;
+        public CollisionWorld(float cellSize)
+        {
+            var persistent = Allocator.Persistent;
+            m_Bodies = new NativeArray<RigidBody>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_Eabbs = new NativeArray<Aabb>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_Filters = new NativeArray<CollisionFilter>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_MaterialFlags = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_Kinematics = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_InvMasses = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_LinearVelocities = new NativeArray<float3>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_DampingLinear = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_DampingAngular = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_CellBodyIndices = new NativeArray<int>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_BodyIndices = new NativeArray<int>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_NumBodies = 0;
+            m_NumDynamicBodies = 0;
+            m_GridMin = default;
+            m_GridSize = default;
+            m_CellSize = cellSize;
+            CollisionTolerance = DefaultCollisionTolerance;
+        }
+
+        public int NumBodies => m_NumBodies;
         public int NumDynamicBodies => m_NumDynamicBodies;
         public int NumStaticBodies => NumBodies - m_NumDynamicBodies;
 
-        public NativeArray<RigidBody> Bodies => m_Bodies;
+        public NativeArray<RigidBody> Bodies => m_Bodies.GetSubArray(0, m_NumBodies);
 
-        public NativeArray<RigidBody> DynamicBodies
-        {
-            get { return m_Bodies.GetSubArray(0, m_NumDynamicBodies); }
-        }
+        public NativeArray<RigidBody> DynamicBodies => m_Bodies.GetSubArray(0, m_NumDynamicBodies);
 
-        public NativeArray<RigidBody> StaticBodies
+        public NativeArray<RigidBody> StaticBodies => m_Bodies.GetSubArray(m_NumDynamicBodies, NumStaticBodies);
+
+        public void Dispose()
         {
-            get { return m_Bodies.GetSubArray(m_NumDynamicBodies, NumStaticBodies); }
+            if (m_Bodies.IsCreated) m_Bodies.Dispose();
+            if (m_Eabbs.IsCreated) m_Eabbs.Dispose();
+            if (m_Filters.IsCreated) m_Filters.Dispose();
+            if (m_MaterialFlags.IsCreated) m_MaterialFlags.Dispose();
+            if (m_Kinematics.IsCreated) m_Kinematics.Dispose();
+            if (m_InvMasses.IsCreated) m_InvMasses.Dispose();
+            if (m_LinearVelocities.IsCreated) m_LinearVelocities.Dispose();
+            if (m_DampingLinear.IsCreated) m_DampingLinear.Dispose();
+            if (m_DampingAngular.IsCreated) m_DampingAngular.Dispose();
+            if (m_CellBodyIndices.IsCreated) m_CellBodyIndices.Dispose();
+            if (m_BodyIndices.IsCreated) m_BodyIndices.Dispose();
+            m_NumBodies = 0;
+            m_NumDynamicBodies = 0;
         }
 
         public bool OverlapAabb(OverlapAabbInput input, ref NativeList<int> allHits)
         {
-            if (!m_CellStart.IsCreated || m_CellSize <= 0f || input.Filter.IsEmpty)
+            if (m_CellBodyIndices.Length == 0 || m_CellSize <= 0f || input.Filter.IsEmpty)
             {
                 return false;
             }
@@ -55,10 +90,10 @@ namespace Unity.Physics
             {
                 for (int z = cells.z; z <= cells.w; z++)
                 {
-                    int cellIndex = (x - m_GridMinCell.x) + (z - m_GridMinCell.y) * m_GridCount.x;
-                    for (int k = m_CellStart[cellIndex]; k < m_CellStart[cellIndex + 1]; k++)
+                    int cellIndex = (x - m_GridMin.x) + (z - m_GridMin.y) * m_GridSize.x;
+                    for (int k = m_CellBodyIndices[cellIndex]; k < m_CellBodyIndices[cellIndex + 1]; k++)
                     {
-                        int bodyIndex = m_CellOrder[k];
+                        int bodyIndex = m_BodyIndices[k];
                         if (!m_Eabbs[bodyIndex].Overlaps(input.Aabb)) continue;
                         if (!CollisionFilter.IsCollisionEnabled(input.Filter, m_Filters[bodyIndex])) continue;
                         bool duplicate = false;
@@ -77,9 +112,9 @@ namespace Unity.Physics
         {
             var min = (int2)math.floor(aabb.Min.xz / m_CellSize);
             var max = (int2)math.floor(aabb.Max.xz / m_CellSize);
-            var gridMax = m_GridMinCell + m_GridCount - 1;
-            min = math.clamp(min, m_GridMinCell, gridMax);
-            max = math.clamp(max, m_GridMinCell, gridMax);
+            var gridMax = m_GridMin + m_GridSize - 1;
+            min = math.clamp(min, m_GridMin, gridMax);
+            max = math.clamp(max, m_GridMin, gridMax);
             return new int4(min.x, max.x, min.y, max.y);
         }
 
@@ -87,7 +122,7 @@ namespace Unity.Physics
             float3 position, float radius, ref NativeList<DistanceHit> outHits,
             CollisionFilter filter, QueryInteraction queryInteraction = QueryInteraction.Default)
         {
-            if (!m_Bodies.IsCreated || filter.IsEmpty)
+            if (m_Bodies.Length == 0 || filter.IsEmpty)
             {
                 return false;
             }
@@ -107,7 +142,7 @@ namespace Unity.Physics
 
         public unsafe bool CastCollider(ColliderCastInput input, ref NativeList<ColliderCastHit> allHits)
         {
-            if (!m_Bodies.IsCreated || input.Collider == null)
+            if (m_Bodies.Length == 0 || input.Collider == null)
             {
                 return false;
             }
@@ -121,7 +156,6 @@ namespace Unity.Physics
             {
                 int bodyIndex = candidates[i];
                 var body = m_Bodies[bodyIndex];
-                if (!body.Collider.IsCreated) continue;
                 var bodyFilter = ((Collider*)body.Collider.GetUnsafePtr())->GetCollisionFilter();
                 if (!CollisionFilter.IsCollisionEnabled(bodyFilter, input.Collider->GetCollisionFilter())) continue;
                 if (TryCast(input, scale, bodyIndex, out var hit))
@@ -135,7 +169,7 @@ namespace Unity.Physics
 
         internal void GatherCandidates(Aabb aabb, ref NativeList<int> results)
         {
-            if (!m_CellStart.IsCreated || m_CellSize <= 0f)
+            if (m_CellBodyIndices.Length == 0 || m_CellSize <= 0f)
             {
                 return;
             }
@@ -144,10 +178,10 @@ namespace Unity.Physics
             {
                 for (int z = cells.z; z <= cells.w; z++)
                 {
-                    int cellIndex = (x - m_GridMinCell.x) + (z - m_GridMinCell.y) * m_GridCount.x;
-                    for (int k = m_CellStart[cellIndex]; k < m_CellStart[cellIndex + 1]; k++)
+                    int cellIndex = (x - m_GridMin.x) + (z - m_GridMin.y) * m_GridSize.x;
+                    for (int k = m_CellBodyIndices[cellIndex]; k < m_CellBodyIndices[cellIndex + 1]; k++)
                     {
-                        int bodyIndex = m_CellOrder[k];
+                        int bodyIndex = m_BodyIndices[k];
                         bool duplicate = false;
                         for (int d = 0; d < results.Length; d++)
                         {
@@ -163,7 +197,6 @@ namespace Unity.Physics
         {
             hit = default;
             var body = m_Bodies[bodyIndex];
-            if (!body.Collider.IsCreated) return false;
             if (!CollisionFilter.IsCollisionEnabled(filter, m_Filters[bodyIndex])) return false;
 
             var leaves = new NativeList<CollisionTests.Leaf>(4, Allocator.Temp);
@@ -200,7 +233,6 @@ namespace Unity.Physics
         {
             hit = default;
             var body = m_Bodies[bodyIndex];
-            if (!body.Collider.IsCreated) return false;
 
             var castLeaves = new NativeList<CollisionTests.Leaf>(4, Allocator.Temp);
             var bodyLeaves = new NativeList<CollisionTests.Leaf>(4, Allocator.Temp);

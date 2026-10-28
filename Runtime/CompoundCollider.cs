@@ -68,13 +68,10 @@ namespace Unity.Physics
             for (int i = 0; i < children.Length; i++)
             {
                 filter = CollisionFilter.CreateUnion(filter, children[i].Collider.Value.GetCollisionFilter());
-                if (children[i].Collider.IsCreated)
-                {
-                    var mp = children[i].Collider.Value.MassProperties;
-                    massProperties.MassDistribution.InertiaTensor += mp.MassDistribution.InertiaTensor;
-                    massProperties.Volume += mp.Volume;
-                    massProperties.AngularExpansionFactor = math.max(massProperties.AngularExpansionFactor, mp.AngularExpansionFactor);
-                }
+                var mp = children[i].Collider.Value.MassProperties;
+                massProperties.MassDistribution.InertiaTensor += mp.MassDistribution.InertiaTensor;
+                massProperties.Volume += mp.Volume;
+                massProperties.AngularExpansionFactor = math.max(massProperties.AngularExpansionFactor, mp.AngularExpansionFactor);
             }
 
             var size = sizeof(CompoundCollider) + children.Length * sizeof(Child);

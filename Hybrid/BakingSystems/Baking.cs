@@ -25,27 +25,20 @@ namespace Unity.Physics.Authoring
             var instances = new List<ColliderBlobInstance>();
             var singleIsOnBody = false;
             uint index = 0;
-            try
+            foreach (var c in s_Colliders)
             {
-                foreach (var c in s_Colliders)
-                {
-                    if (!c.enabled) continue;
-                    if (!includeRigidbodyOwned && c.GetComponentInParent<Rigidbody>(true) != null) continue;
-                    DependsOn(c);
+                if (!c.enabled) continue;
+                if (!includeRigidbodyOwned && c.GetComponentInParent<Rigidbody>(true) != null) continue;
+                DependsOn(c);
 
-                    var blob = BakeSingleCollider(c, bodyTransform, forceUniqueBase + index);
-                    instances.Add(new ColliderBlobInstance
-                    {
-                        Collider = blob,
-                        CompoundFromChild = GetCompoundFromChild(c.transform, bodyTransform)
-                    });
-                    if (c.gameObject == body) singleIsOnBody = true;
-                    ++index;
-                }
-            }
-            finally
-            {
-                s_Colliders.Clear();
+                var blob = BakeSingleCollider(c, bodyTransform, forceUniqueBase + index);
+                instances.Add(new ColliderBlobInstance
+                {
+                    Collider = blob,
+                    CompoundFromChild = GetCompoundFromChild(c.transform, bodyTransform)
+                });
+                if (c.gameObject == body) singleIsOnBody = true;
+                ++index;
             }
 
             if (instances.Count == 0)
@@ -102,7 +95,7 @@ namespace Unity.Physics.Authoring
                 AddBlobAsset(ref blob, out _);
                 return blob;
             }
-            return BlobAssetReference<Collider>.Null;
+            throw new System.ArgumentException($"Unsupported collider type {collider.GetType().Name} on {collider.gameObject.name}");
         }
 
         static CollisionFilter ProduceCollisionFilter(UnityEngine.Collider collider, GameObject body)

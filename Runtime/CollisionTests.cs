@@ -20,7 +20,6 @@ namespace Unity.Physics
 
         internal static unsafe void CollectLeaves(RigidBody body, NativeList<Leaf> leaves)
         {
-            if (!body.Collider.IsCreated) return;
             var collider = (Collider*)body.Collider.GetUnsafePtr();
             CollectLeaves(collider, body.WorldFromBody, body.Scale, leaves);
         }

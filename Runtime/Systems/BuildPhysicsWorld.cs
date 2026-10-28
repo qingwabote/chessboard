@@ -1,7 +1,6 @@
 using Bastard;
 using Unity.Burst;
 using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Transforms;
@@ -13,79 +12,22 @@ namespace Unity.Physics.Systems
     {
         const float k_CellSize = 1.5f;
 
-        NativeArray<RigidBody> m_AllBodies;
-        NativeArray<Aabb> m_AllEabbs;
-        NativeArray<CollisionFilter> m_AllFilters;
-        NativeArray<byte> m_AllFlags;
-        NativeArray<byte> m_AllKinematics;
-        NativeArray<float> m_AllInvMasses;
-        NativeArray<float3> m_AllLinearVelocities;
-        NativeArray<float> m_AllDampingLinear;
-        NativeArray<float> m_AllDampingAngular;
-        NativeArray<int> m_CellStart;
-        NativeArray<int> m_CellCursor;
-        NativeArray<int> m_CellOrder;
-        NativeArray<int2> m_CellSpanMin;
-        NativeArray<int2> m_CellSpanMax;
-        internal int2 m_GridMinCell;
-        internal int2 m_GridCount;
-
-
         public void OnCreate(ref SystemState state)
         {
-            var persistent = Allocator.Persistent;
-            m_AllBodies = new NativeArray<RigidBody>(0, persistent, NativeArrayOptions.UninitializedMemory);
-            m_AllEabbs = new NativeArray<Aabb>(0, persistent, NativeArrayOptions.UninitializedMemory);
-            m_AllFilters = new NativeArray<CollisionFilter>(0, persistent, NativeArrayOptions.UninitializedMemory);
-            m_AllFlags = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
-            m_AllKinematics = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
-            m_AllInvMasses = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
-            m_AllLinearVelocities = new NativeArray<float3>(0, persistent, NativeArrayOptions.UninitializedMemory);
-            m_AllDampingLinear = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
-            m_AllDampingAngular = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
-            m_CellStart = new NativeArray<int>(1024, persistent, NativeArrayOptions.UninitializedMemory);
-            m_CellCursor = new NativeArray<int>(1024, persistent, NativeArrayOptions.UninitializedMemory);
-            m_CellOrder = new NativeArray<int>(256, persistent, NativeArrayOptions.UninitializedMemory);
-            m_CellSpanMin = new NativeArray<int2>(256, persistent, NativeArrayOptions.UninitializedMemory);
-            m_CellSpanMax = new NativeArray<int2>(256, persistent, NativeArrayOptions.UninitializedMemory);
-            m_GridMinCell = int2.zero;
-            m_GridCount = int2.zero;
-
             var entity = state.EntityManager.CreateEntity(typeof(PhysicsWorldSingleton));
             state.EntityManager.SetName(entity, "PhysicsWorldSingleton");
             SystemAPI.SetSingleton(new PhysicsWorldSingleton
             {
                 PhysicsWorld = new PhysicsWorld
                 {
-                    CollisionWorld = new CollisionWorld
-                    {
-                        CollisionTolerance = CollisionWorld.DefaultCollisionTolerance,
-                        m_CellStart = m_CellStart,
-                        m_CellOrder = m_CellOrder,
-                        m_GridMinCell = int2.zero,
-                        m_GridCount = int2.zero,
-                        m_CellSize = k_CellSize
-                    }
+                    CollisionWorld = new CollisionWorld(k_CellSize)
                 }
             });
         }
 
         public void OnDestroy(ref SystemState state)
         {
-            if (m_AllBodies.IsCreated) m_AllBodies.Dispose();
-            if (m_AllEabbs.IsCreated) m_AllEabbs.Dispose();
-            if (m_AllFilters.IsCreated) m_AllFilters.Dispose();
-            if (m_AllFlags.IsCreated) m_AllFlags.Dispose();
-            if (m_AllKinematics.IsCreated) m_AllKinematics.Dispose();
-            if (m_AllInvMasses.IsCreated) m_AllInvMasses.Dispose();
-            if (m_AllLinearVelocities.IsCreated) m_AllLinearVelocities.Dispose();
-            if (m_AllDampingLinear.IsCreated) m_AllDampingLinear.Dispose();
-            if (m_AllDampingAngular.IsCreated) m_AllDampingAngular.Dispose();
-            if (m_CellStart.IsCreated) m_CellStart.Dispose();
-            if (m_CellCursor.IsCreated) m_CellCursor.Dispose();
-            if (m_CellOrder.IsCreated) m_CellOrder.Dispose();
-            if (m_CellSpanMin.IsCreated) m_CellSpanMin.Dispose();
-            if (m_CellSpanMax.IsCreated) m_CellSpanMax.Dispose();
+            SystemAPI.GetSingletonRW<PhysicsWorldSingleton>().ValueRW.PhysicsWorld.CollisionWorld.Dispose();
         }
 
         [BurstCompile]
@@ -94,50 +36,57 @@ namespace Unity.Physics.Systems
             var step = SystemAPI.TryGetSingleton(out PhysicsStep physicsStep) ? physicsStep : PhysicsStep.Default;
             float dt = SystemAPI.Time.DeltaTime;
 
-            int totalCount = SystemAPI.QueryBuilder()
-                .WithAll<PhysicsCollider, LocalTransform>()
-                .Build().CalculateEntityCount();
-            if (totalCount == 0)
+            int bodyCount = SystemAPI.QueryBuilder().WithAll<PhysicsCollider, LocalTransform>().Build().CalculateEntityCount();
+
+            const float k_GroundMargin = 24f;
+            CameraExtensions.GetGroundAABB(out var groundMin, out var groundMax);
+            var gridMin = (int2)math.floor((groundMin - k_GroundMargin) / k_CellSize);
+            var gridMax = (int2)math.floor((groundMax + k_GroundMargin) / k_CellSize);
+            var gridSize = gridMax - gridMin + 1;
+            var cellTotal = gridSize.x * gridSize.y;
+
+            static ref NativeArray<T> Grow<T>(ref NativeArray<T> array, int capacity) where T : unmanaged
             {
-                return;
+                if (array.Length >= capacity) return ref array;
+                array.Dispose();
+                array = new NativeArray<T>(capacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+                return ref array;
             }
 
-            EnsureCapacity(ref m_AllBodies, totalCount);
-            EnsureCapacity(ref m_AllEabbs, totalCount);
-            EnsureCapacity(ref m_AllFilters, totalCount);
-            EnsureCapacity(ref m_AllFlags, totalCount);
-            EnsureCapacity(ref m_AllKinematics, totalCount);
-            EnsureCapacity(ref m_AllInvMasses, totalCount);
-            EnsureCapacity(ref m_AllLinearVelocities, totalCount);
-            EnsureCapacity(ref m_AllDampingLinear, totalCount);
-            EnsureCapacity(ref m_AllDampingAngular, totalCount);
-            if (m_CellSpanMin.Length < totalCount)
+            ref var collisionWorld = ref SystemAPI.GetSingletonRW<PhysicsWorldSingleton>().ValueRW.PhysicsWorld.CollisionWorld;
+            var bodies = Grow(ref collisionWorld.m_Bodies, bodyCount);
+            var eabbs = Grow(ref collisionWorld.m_Eabbs, bodyCount);
+            var filters = Grow(ref collisionWorld.m_Filters, bodyCount);
+            var flags = Grow(ref collisionWorld.m_MaterialFlags, bodyCount);
+            var kinematics = Grow(ref collisionWorld.m_Kinematics, bodyCount);
+            var invMasses = Grow(ref collisionWorld.m_InvMasses, bodyCount);
+            var linearVelocities = Grow(ref collisionWorld.m_LinearVelocities, bodyCount);
+            var dampingLinear = Grow(ref collisionWorld.m_DampingLinear, bodyCount);
+            var dampingAngular = Grow(ref collisionWorld.m_DampingAngular, bodyCount);
+
+            int bodyIndex = 0;
+            int CellIndex(int2 cell)
             {
-                m_CellSpanMin.Dispose();
-                m_CellSpanMax.Dispose();
-                m_CellSpanMin = new NativeArray<int2>(math.ceilpow2(math.max(256, totalCount)), Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-                m_CellSpanMax = new NativeArray<int2>(m_CellSpanMin.Length, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+                return (cell.x - gridMin.x) + (cell.y - gridMin.y) * gridSize.x;
+            }
+            var occupancy = new NativeArray<int>(cellTotal, Allocator.Temp, NativeArrayOptions.ClearMemory);
+            var occupiedMin = new NativeArray<int2>(bodyCount, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+            var occupiedMax = new NativeArray<int2>(bodyCount, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+            void Occupy(float2 min, float2 max)
+            {
+                var cellMin = math.max((int2)math.floor(min / k_CellSize), gridMin);
+                var cellMax = math.min((int2)math.floor(max / k_CellSize), gridMax);
+                for (int x = cellMin.x; x <= cellMax.x; x++)
+                {
+                    for (int y = cellMin.y; y <= cellMax.y; y++)
+                    {
+                        occupancy[CellIndex(new int2(x, y))]++;
+                    }
+                }
+                occupiedMin[bodyIndex] = cellMin;
+                occupiedMax[bodyIndex] = cellMax;
             }
 
-            var bodies = m_AllBodies;
-            var eabbs = m_AllEabbs;
-            var filters = m_AllFilters;
-            var flags = m_AllFlags;
-            var kinematics = m_AllKinematics;
-            var invMasses = m_AllInvMasses;
-            var linearVelocities = m_AllLinearVelocities;
-            var dampingLinear = m_AllDampingLinear;
-            var dampingAngular = m_AllDampingAngular;
-
-            const float k_WindowMargin = 24f;
-            CameraExtensions.GetGroundAABB(out var windowMin, out var windowMax);
-            windowMin -= k_WindowMargin;
-            windowMax += k_WindowMargin;
-            var cellMin = (int2)math.floor(windowMin / k_CellSize);
-            var cellMax = (int2)math.floor(windowMax / k_CellSize);
-
-            int index = 0;
-            int dynamicTotal = 0;
             var colliderHandle = SystemAPI.GetComponentTypeHandle<PhysicsCollider>(true);
             var transformHandle = SystemAPI.GetComponentTypeHandle<LocalTransform>(true);
             var entityHandle = SystemAPI.GetEntityTypeHandle();
@@ -164,7 +113,6 @@ namespace Unity.Physics.Systems
                     for (int i = 0; i < chunk.Count; i++)
                     {
                         var collider = colliders[i];
-                        if (!collider.IsValid) continue;
                         // We support rigid body entities with various different transformation data components.
                         // Here, we are extracting their world space transformation and feed it into the underlying
                         // physics engine for processing in the pipeline (e.g., collision detection, solver, integration).
@@ -203,37 +151,34 @@ namespace Unity.Physics.Systems
                         };
 
                         var blob = (Collider*)collider.Value.GetUnsafePtr();
-                        bodies[index] = new RigidBody
+                        bodies[bodyIndex] = new RigidBody
                         {
                             Collider = collider.Value,
                             WorldFromBody = bodyTransform,
                             Entity = entities[i],
                             Scale = scale
                         };
-                        eabbs[index] = eabb;
-                        filters[index] = blob->m_Header.Filter;
-                        flags[index] = (byte)blob->m_Header.Material.Flags;
-                        kinematics[index] = mass.IsKinematic ? (byte)1 : (byte)0;
-                        invMasses[index] = mass.InverseMass;
-                        linearVelocities[index] = velocities[i].Linear;
+                        eabbs[bodyIndex] = eabb;
+                        filters[bodyIndex] = blob->m_Header.Filter;
+                        flags[bodyIndex] = (byte)blob->m_Header.Material.Flags;
+                        kinematics[bodyIndex] = mass.IsKinematic ? (byte)1 : (byte)0;
+                        invMasses[bodyIndex] = mass.InverseMass;
+                        linearVelocities[bodyIndex] = velocities[i].Linear;
                         if (hasDamping)
                         {
-                            dampingLinear[index] = dampings[i].Linear;
-                            dampingAngular[index] = dampings[i].Angular;
+                            dampingLinear[bodyIndex] = dampings[i].Linear;
+                            dampingAngular[bodyIndex] = dampings[i].Angular;
                         }
                         else
                         {
-                            dampingLinear[index] = 0f;
-                            dampingAngular[index] = 0f;
+                            dampingLinear[bodyIndex] = 0f;
+                            dampingAngular[bodyIndex] = 0f;
                         }
-                        var dmin = (int2)math.floor(eabb.Min.xz / k_CellSize);
-                        var dmax = (int2)math.floor(eabb.Max.xz / k_CellSize);
-                        m_CellSpanMin[index] = dmin;
-                        m_CellSpanMax[index] = dmax;
-                        index++;
+                        Occupy(eabb.Min.xz, eabb.Max.xz);
+                        bodyIndex++;
                     }
                 }
-                dynamicTotal = index;
+                collisionWorld.m_NumDynamicBodies = bodyIndex;
             }
 
             {
@@ -249,7 +194,6 @@ namespace Unity.Physics.Systems
                     for (int i = 0; i < chunk.Count; i++)
                     {
                         var collider = colliders[i];
-                        if (!collider.IsValid) continue;
                         // We support rigid body entities with various different transformation data components.
                         // Here, we are extracting their world space transformation and feed it into the underlying
                         // physics engine for processing in the pipeline (e.g., collision detection, solver, integration).
@@ -277,117 +221,57 @@ namespace Unity.Physics.Systems
                         aabb.Expand(step.CollisionTolerance * 0.5f);
 
                         var blob = (Collider*)collider.Value.GetUnsafePtr();
-                        bodies[index] = new RigidBody
+                        bodies[bodyIndex] = new RigidBody
                         {
                             Collider = collider.Value,
                             WorldFromBody = bodyTransform,
                             Entity = entities[i],
                             Scale = scale
                         };
-                        eabbs[index] = aabb;
-                        filters[index] = blob->m_Header.Filter;
-                        flags[index] = (byte)blob->m_Header.Material.Flags;
-                        kinematics[index] = 1;
-                        invMasses[index] = 0f;
-                        linearVelocities[index] = float3.zero;
-                        dampingLinear[index] = 0f;
-                        dampingAngular[index] = 0f;
-                        var smin = (int2)math.floor(aabb.Min.xz / k_CellSize);
-                        var smax = (int2)math.floor(aabb.Max.xz / k_CellSize);
-                        m_CellSpanMin[index] = smin;
-                        m_CellSpanMax[index] = smax;
-                        index++;
+                        eabbs[bodyIndex] = aabb;
+                        filters[bodyIndex] = blob->m_Header.Filter;
+                        flags[bodyIndex] = (byte)blob->m_Header.Material.Flags;
+                        kinematics[bodyIndex] = 1;
+                        invMasses[bodyIndex] = 0f;
+                        linearVelocities[bodyIndex] = float3.zero;
+                        dampingLinear[bodyIndex] = 0f;
+                        dampingAngular[bodyIndex] = 0f;
+                        Occupy(aabb.Min.xz, aabb.Max.xz);
+                        bodyIndex++;
                     }
                 }
             }
-            int validTotal = index;
 
-            var gridCount = cellMax - cellMin + 1;
-            int cellTotal = gridCount.x * gridCount.y;
-
-            if (m_CellStart.Length < cellTotal + 1)
+            var cellBodyIndices = occupancy;
+            int cellBodyIndex = 0;
+            for (int i = 0; i < cellTotal; i++)
             {
-                m_CellStart.Dispose();
-                m_CellStart = new NativeArray<int>(math.ceilpow2(cellTotal + 1), Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-                m_CellCursor.Dispose();
-                m_CellCursor = new NativeArray<int>(m_CellStart.Length, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-            }
-            if (m_CellOrder.Length < index)
-            {
-                m_CellOrder.Dispose();
-                m_CellOrder = new NativeArray<int>(math.ceilpow2(math.max(256, index)), Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-            }
-            UnsafeUtility.MemClear(m_CellStart.GetUnsafePtr(), (cellTotal + 1) * sizeof(int));
-
-            int CellIndex(int2 cell)
-            {
-                return (cell.x - cellMin.x) + (cell.y - cellMin.y) * gridCount.x;
+                int count = cellBodyIndices[i];
+                cellBodyIndices[i] = cellBodyIndex;
+                cellBodyIndex += count;
             }
 
-            for (int i = 0; i < validTotal; i++)
+            Grow(ref collisionWorld.m_CellBodyIndices, cellTotal + 1);
+            collisionWorld.m_CellBodyIndices[cellTotal] = cellBodyIndex;
+            NativeArray<int>.Copy(cellBodyIndices, collisionWorld.m_CellBodyIndices, cellTotal);
+
+            var bodyIndices = Grow(ref collisionWorld.m_BodyIndices, cellBodyIndex);
+            for (int i = 0; i < bodyIndex; i++)
             {
-                var cmin = math.max(m_CellSpanMin[i], cellMin);
-                var cmax = math.min(m_CellSpanMax[i], cellMax);
-                if (cmin.x > cmax.x || cmin.y > cmax.y)
+                var min = occupiedMin[i];
+                var max = occupiedMax[i];
+                for (int x = min.x; x <= max.x; x++)
                 {
-                    m_CellSpanMin[i] = new int2(1);
-                    m_CellSpanMax[i] = new int2(0);
-                    continue;
-                }
-                m_CellSpanMin[i] = cmin;
-                m_CellSpanMax[i] = cmax;
-                for (int x = cmin.x; x <= cmax.x; x++)
-                {
-                    for (int z = cmin.y; z <= cmax.y; z++)
+                    for (int y = min.y; y <= max.y; y++)
                     {
-                        m_CellStart[CellIndex(new int2(x, z)) + 1]++;
-                    }
-                }
-            }
-            for (int c = 0; c < cellTotal; c++)
-            {
-                m_CellStart[c + 1] += m_CellStart[c];
-                m_CellCursor[c] = m_CellStart[c];
-            }
-            EnsureCapacity(ref m_CellOrder, m_CellStart[cellTotal]);
-            for (int i = 0; i < validTotal; i++)
-            {
-                var cmin = m_CellSpanMin[i];
-                var cmax = m_CellSpanMax[i];
-                for (int x = cmin.x; x <= cmax.x; x++)
-                {
-                    for (int z = cmin.y; z <= cmax.y; z++)
-                    {
-                        m_CellOrder[m_CellCursor[CellIndex(new int2(x, z))]++] = i;
+                        bodyIndices[cellBodyIndices[CellIndex(new int2(x, y))]++] = i;
                     }
                 }
             }
 
-            SystemAPI.SetSingleton(new PhysicsWorldSingleton
-            {
-                PhysicsWorld = new PhysicsWorld
-                {
-                    CollisionWorld = new CollisionWorld
-                    {
-                        CollisionTolerance = CollisionWorld.DefaultCollisionTolerance,
-                        m_Bodies = m_AllBodies.GetSubArray(0, validTotal),
-                        m_NumDynamicBodies = dynamicTotal,
-                        m_Eabbs = m_AllEabbs.GetSubArray(0, validTotal),
-                        m_Filters = m_AllFilters.GetSubArray(0, validTotal),
-                        m_MaterialFlags = m_AllFlags.GetSubArray(0, validTotal),
-                        m_Kinematics = m_AllKinematics.GetSubArray(0, validTotal),
-                        m_InvMasses = m_AllInvMasses.GetSubArray(0, validTotal),
-                        m_LinearVelocities = m_AllLinearVelocities.GetSubArray(0, validTotal),
-                        m_DampingLinear = m_AllDampingLinear.GetSubArray(0, validTotal),
-                        m_DampingAngular = m_AllDampingAngular.GetSubArray(0, validTotal),
-                        m_CellStart = m_CellStart,
-                        m_CellOrder = m_CellOrder,
-                        m_GridMinCell = cellMin,
-                        m_GridCount = gridCount,
-                        m_CellSize = k_CellSize
-                    }
-                }
-            });
+            collisionWorld.m_NumBodies = bodyIndex;
+            collisionWorld.m_GridMin = gridMin;
+            collisionWorld.m_GridSize = gridSize;
         }
 
 
@@ -397,15 +281,5 @@ namespace Unity.Physics.Systems
         // Copy from Unity.Physics 1.4.5 (com.unity.physics@0dfa150f2a43), Unity.Physics/Base/Math/Math.cs:578-583.
         static RigidTransform DecomposeRigidBodyTransform(in float4x4 localToWorld) =>
             new(quaternion.LookRotationSafe(localToWorld.c2.xyz, localToWorld.c1.xyz), localToWorld.c3.xyz);
-
-        static void EnsureCapacity<T>(ref NativeArray<T> array, int capacity) where T : unmanaged
-        {
-            if (array.Length < capacity)
-            {
-                array.Dispose();
-                array = new NativeArray<T>(
-                    math.max(256, math.ceilpow2(capacity)), Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-            }
-        }
     }
 }

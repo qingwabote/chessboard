@@ -114,7 +114,7 @@ namespace Unity.Physics.Systems
 
             var collisionWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().PhysicsWorld.CollisionWorld;
             int numBodies = collisionWorld.NumBodies;
-            if (numBodies == 0 || !collisionWorld.m_Bodies.IsCreated)
+            if (numBodies == 0)
             {
                 return;
             }
@@ -147,17 +147,17 @@ namespace Unity.Physics.Systems
                 var eabbI = eabbs[i];
                 int2 min = (int2)math.floor(eabbI.Min.xz / cellSize);
                 int2 max = (int2)math.floor(eabbI.Max.xz / cellSize);
-                var gridMax = collisionWorld.m_GridMinCell + collisionWorld.m_GridCount - 1;
-                min = math.clamp(min, collisionWorld.m_GridMinCell, gridMax);
-                max = math.clamp(max, collisionWorld.m_GridMinCell, gridMax);
+                var gridMax = collisionWorld.m_GridMin + collisionWorld.m_GridSize - 1;
+                min = math.clamp(min, collisionWorld.m_GridMin, gridMax);
+                max = math.clamp(max, collisionWorld.m_GridMin, gridMax);
                 for (int x = min.x; x <= max.x; x++)
                 {
                     for (int z = min.y; z <= max.y; z++)
                     {
-                        int cellIndex = (x - collisionWorld.m_GridMinCell.x) + (z - collisionWorld.m_GridMinCell.y) * collisionWorld.m_GridCount.x;
-                        for (int k = collisionWorld.m_CellStart[cellIndex]; k < collisionWorld.m_CellStart[cellIndex + 1]; k++)
+                        int cellIndex = (x - collisionWorld.m_GridMin.x) + (z - collisionWorld.m_GridMin.y) * collisionWorld.m_GridSize.x;
+                        for (int k = collisionWorld.m_CellBodyIndices[cellIndex]; k < collisionWorld.m_CellBodyIndices[cellIndex + 1]; k++)
                         {
-                            int j = collisionWorld.m_CellOrder[k];
+                            int j = collisionWorld.m_BodyIndices[k];
                             if (j == i) continue;
                             if (j < numDynamic && j < i) continue;
                             if (m_Seen[j] == m_Epoch) continue;
@@ -315,22 +315,18 @@ namespace Unity.Physics.Systems
 
             var dampingLinear = collisionWorld.m_DampingLinear;
             var dampingAngular = collisionWorld.m_DampingAngular;
-            var colliderHandle = SystemAPI.GetComponentTypeHandle<PhysicsCollider>(true);
             var transformHandle = SystemAPI.GetComponentTypeHandle<LocalTransform>();
             var velocityHandle = SystemAPI.GetComponentTypeHandle<PhysicsVelocity>();
             var massHandle = SystemAPI.GetComponentTypeHandle<PhysicsMass>(true);
             int bodyIndex = 0;
             foreach (var chunk in SystemAPI.QueryBuilder().WithAll<PhysicsCollider, LocalTransform, PhysicsVelocity>().Build().ToArchetypeChunkArray(Allocator.Temp))
             {
-                var colliders = chunk.GetNativeArray(ref colliderHandle);
                 var transforms = chunk.GetNativeArray(ref transformHandle);
                 var velocities = chunk.GetNativeArray(ref velocityHandle);
                 var masses = chunk.GetNativeArray(ref massHandle);
                 bool hasMass = masses.IsCreated;
                 for (int i = 0; i < chunk.Count; i++)
                 {
-                    if (!colliders[i].IsValid) continue;
-                    if (bodyIndex >= numDynamic) break;
                     int bi = bodyIndex++;
 
                     var v = velocities[i];
@@ -362,7 +358,6 @@ namespace Unity.Physics.Systems
                     transforms[i] = tr;
                     velocities[i] = v;
                 }
-                if (bodyIndex >= numDynamic) break;
             }
         }
     }
