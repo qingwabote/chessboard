@@ -332,24 +332,6 @@ namespace Unity.Physics
             return true;
         }
 
-        internal static Aabb LeafAabb(in Leaf leaf)
-        {
-            if (leaf.Type == ColliderType.Sphere)
-            {
-                return new Aabb
-                {
-                    Min = new float3(leaf.ShadowCenter.x - leaf.Radius, 0f, leaf.ShadowCenter.y - leaf.Radius),
-                    Max = new float3(leaf.ShadowCenter.x + leaf.Radius, 0f, leaf.ShadowCenter.y + leaf.Radius)
-                };
-            }
-            var half = ShadowHalfXz(leaf);
-            return new Aabb
-            {
-                Min = new float3(leaf.ShadowCenter.x - half.x, 0f, leaf.ShadowCenter.y - half.y),
-                Max = new float3(leaf.ShadowCenter.x + half.x, 0f, leaf.ShadowCenter.y + half.y)
-            };
-        }
-
         internal static float PointLeafDistance(in Leaf leaf, float3 point, out float3 surfaceNormal, out float3 closestPoint)
         {
             surfaceNormal = new float3(0f, 0f, 1f);

@@ -113,8 +113,8 @@ namespace Unity.Physics.Systems
                 uint collidesI = filters[i].CollidesWith;
                 byte flagsI = materialFlags[i];
                 var eabbI = eabbs[i];
-                int2 min = (int2)math.floor(eabbI.Min.xz / cellSize);
-                int2 max = (int2)math.floor(eabbI.Max.xz / cellSize);
+                int2 min = (int2)math.floor(eabbI.Min / cellSize);
+                int2 max = (int2)math.floor(eabbI.Max / cellSize);
                 var gridMax = collisionWorld.m_GridMin + collisionWorld.m_GridSize - 1;
                 min = math.clamp(min, collisionWorld.m_GridMin, gridMax);
                 max = math.clamp(max, collisionWorld.m_GridMin, gridMax);
@@ -134,8 +134,7 @@ namespace Unity.Physics.Systems
                             if ((filterJ.CollidesWith & belongsI) == 0) continue;
                             m_Seen[j] = m_Epoch;
                             var eabbJ = eabbs[j];
-                            if (eabbI.Max.x < eabbJ.Min.x || eabbI.Min.x > eabbJ.Max.x
-                                || eabbI.Max.z < eabbJ.Min.z || eabbI.Min.z > eabbJ.Max.z) continue;
+                            if (math.any(eabbI.Max < eabbJ.Min) || math.any(eabbI.Min > eabbJ.Max)) continue;
                             if (((MaterialFlags)(flagsI | materialFlags[j]) & MaterialFlags.DisableCollisions) != 0) continue;
                             m_Pairs.Add(new int2(i, j));
                         }

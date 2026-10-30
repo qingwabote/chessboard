@@ -136,7 +136,7 @@ namespace Unity.Physics.Systems
                             bodyTransform.rot = transforms[i].Rotation;
                         }
                         float scale = hasLocal ? transforms[i].Scale : 1f;
-                        var aabb = collider.Value.CalculateAabb(bodyTransform, scale);
+                        Aabb2 aabb = collider.Value.CalculateAabb(bodyTransform, scale);
 
                         var mass = hasMass ? masses[i] : PhysicsMass.CreateKinematic(MassProperties.UnitSphere);
 
@@ -144,10 +144,10 @@ namespace Unity.Physics.Systems
                             math.length(velocities[i].Angular) * dt * mass.AngularExpansionFactor,
                             mass.AngularExpansionFactor);
                         var margin = uniform + step.CollisionTolerance * 0.5f + step.SpeculativeMargin;
-                        var eabb = new Aabb
+                        Aabb2 eabb = new Aabb2
                         {
-                            Min = math.min(aabb.Min, aabb.Min + velocities[i].Linear * dt) - margin,
-                            Max = math.max(aabb.Max, aabb.Max + velocities[i].Linear * dt) + margin
+                            Min = math.min(aabb.Min, aabb.Min + velocities[i].Linear.xz * dt) - margin,
+                            Max = math.max(aabb.Max, aabb.Max + velocities[i].Linear.xz * dt) + margin
                         };
 
                         var blob = (Collider*)collider.Value.GetUnsafePtr();
@@ -174,7 +174,7 @@ namespace Unity.Physics.Systems
                             dampingLinear[bodyIndex] = 0f;
                             dampingAngular[bodyIndex] = 0f;
                         }
-                        Occupy(eabb.Min.xz, eabb.Max.xz);
+                        Occupy(eabb.Min, eabb.Max);
                         bodyIndex++;
                     }
                 }
@@ -217,7 +217,7 @@ namespace Unity.Physics.Systems
                             bodyTransform.rot = transforms[i].Rotation;
                         }
                         float scale = hasLocal ? transforms[i].Scale : 1f;
-                        var aabb = collider.Value.CalculateAabb(bodyTransform, scale);
+                        Aabb2 aabb = collider.Value.CalculateAabb(bodyTransform, scale);
                         aabb.Expand(step.CollisionTolerance * 0.5f);
 
                         var blob = (Collider*)collider.Value.GetUnsafePtr();
@@ -236,7 +236,7 @@ namespace Unity.Physics.Systems
                         linearVelocities[bodyIndex] = float3.zero;
                         dampingLinear[bodyIndex] = 0f;
                         dampingAngular[bodyIndex] = 0f;
-                        Occupy(aabb.Min.xz, aabb.Max.xz);
+                        Occupy(aabb.Min, aabb.Max);
                         bodyIndex++;
                     }
                 }

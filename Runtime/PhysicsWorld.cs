@@ -14,7 +14,7 @@ namespace Unity.Physics
         internal NativeArray<int> m_BodyIndices;
         internal NativeArray<int> m_CellBodyIndices;
 
-        internal NativeArray<Aabb> m_Eabbs;
+        internal NativeArray<Aabb2> m_Eabbs;
         internal NativeArray<CollisionFilter> m_Filters;
         internal NativeArray<byte> m_MaterialFlags;
         internal NativeArray<byte> m_Kinematics;
@@ -32,7 +32,7 @@ namespace Unity.Physics
         {
             var persistent = Allocator.Persistent;
             m_Bodies = new NativeArray<RigidBody>(0, persistent, NativeArrayOptions.UninitializedMemory);
-            m_Eabbs = new NativeArray<Aabb>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_Eabbs = new NativeArray<Aabb2>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_Filters = new NativeArray<CollisionFilter>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_MaterialFlags = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_Kinematics = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
@@ -84,7 +84,8 @@ namespace Unity.Physics
                 return false;
             }
             int hitsBefore = allHits.Length;
-            var cells = CellRange(input.Aabb);
+            Aabb2 q = input.Aabb;
+            var cells = CellRange(q);
             for (int x = cells.x; x <= cells.y; x++)
             {
                 for (int z = cells.z; z <= cells.w; z++)
@@ -93,7 +94,7 @@ namespace Unity.Physics
                     for (int k = m_CellBodyIndices[cellIndex]; k < m_CellBodyIndices[cellIndex + 1]; k++)
                     {
                         int bodyIndex = m_BodyIndices[k];
-                        if (!m_Eabbs[bodyIndex].Overlaps(input.Aabb)) continue;
+                        if (!m_Eabbs[bodyIndex].Overlaps(q)) continue;
                         if (!CollisionFilter.IsCollisionEnabled(input.Filter, m_Filters[bodyIndex])) continue;
                         bool duplicate = false;
                         for (int d = hitsBefore; d < allHits.Length; d++)
@@ -107,10 +108,10 @@ namespace Unity.Physics
             return allHits.Length > hitsBefore;
         }
 
-        internal int4 CellRange(Aabb aabb)
+        internal int4 CellRange(Aabb2 aabb)
         {
-            var min = (int2)math.floor(aabb.Min.xz / m_CellSize);
-            var max = (int2)math.floor(aabb.Max.xz / m_CellSize);
+            var min = (int2)math.floor(aabb.Min / m_CellSize);
+            var max = (int2)math.floor(aabb.Max / m_CellSize);
             var gridMax = m_GridMin + m_GridSize - 1;
             min = math.clamp(min, m_GridMin, gridMax);
             max = math.clamp(max, m_GridMin, gridMax);
@@ -127,7 +128,7 @@ namespace Unity.Physics
             }
             int hitsBefore = outHits.Length;
             var candidates = new NativeList<int>(16, Allocator.Temp);
-            GatherCandidates(new Aabb { Min = position - new float3(radius), Max = position + new float3(radius) }, ref candidates);
+            GatherCandidates(new Aabb2 { Min = position.xz - radius, Max = position.xz + radius }, ref candidates);
             for (int i = 0; i < candidates.Length; i++)
             {
                 if (TryDistance(candidates[i], position, filter, out var hit) && hit.Fraction <= radius)
@@ -150,7 +151,7 @@ namespace Unity.Physics
             var startAabb = Collider.CalculateAabb(input.Collider, new RigidTransform(input.Orientation, input.Start), scale);
             var endAabb = Collider.CalculateAabb(input.Collider, new RigidTransform(input.Orientation, input.End), scale);
             var candidates = new NativeList<int>(16, Allocator.Temp);
-            GatherCandidates(Aabb.Union(startAabb, endAabb), ref candidates);
+            GatherCandidates(Aabb2.Union(startAabb, endAabb), ref candidates);
             for (int i = 0; i < candidates.Length; i++)
             {
                 int bodyIndex = candidates[i];
@@ -166,7 +167,7 @@ namespace Unity.Physics
             return allHits.Length > hitsBefore;
         }
 
-        internal void GatherCandidates(Aabb aabb, ref NativeList<int> results)
+        internal void GatherCandidates(Aabb2 aabb, ref NativeList<int> results)
         {
             if (m_CellBodyIndices.Length == 0 || m_CellSize <= 0f)
             {
