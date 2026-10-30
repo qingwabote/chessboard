@@ -209,14 +209,6 @@ namespace Unity.Physics.Authoring
                     Linear = authoring.linearDamping,
                     Angular = authoring.angularDamping
                 });
-                if (!authoring.useGravity)
-                {
-                    AddComponent(entity, new PhysicsGravityFactor { Value = 0f });
-                }
-            }
-            else
-            {
-                AddComponent(entity, new PhysicsGravityFactor { Value = 0f });
             }
         }
     }

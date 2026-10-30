@@ -1,6 +1,5 @@
 using Unity.Collections;
 using Unity.Entities;
-using Unity.Jobs;
 using Unity.Mathematics;
 
 namespace Unity.Physics
@@ -370,9 +369,7 @@ namespace Unity.Physics
 
     public struct SimulationSingleton : IComponentData
     {
-        public SimulationType Type;
         internal NativeList<TriggerEventData> TriggerEvents;
         internal NativeList<CollisionEventData> CollisionEvents;
-        internal JobHandle EventDependency;
     }
 }

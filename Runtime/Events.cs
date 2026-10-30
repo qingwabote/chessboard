@@ -66,11 +66,7 @@ namespace Unity.Physics
             this T jobData, SimulationSingleton simulationSingleton, JobHandle inputDeps)
             where T : struct, ITriggerEventsJobBase
         {
-            if (simulationSingleton.Type != SimulationType.UnityPhysics)
-            {
-                return inputDeps;
-            }
-            JobHandle.CombineDependencies(inputDeps, simulationSingleton.EventDependency).Complete();
+            inputDeps.Complete();
             var events = simulationSingleton.TriggerEvents;
             for (int i = 0; i < events.Length; i++)
             {
@@ -86,11 +82,7 @@ namespace Unity.Physics
             this T jobData, SimulationSingleton simulationSingleton, JobHandle inputDeps)
             where T : struct, ICollisionEventsJobBase
         {
-            if (simulationSingleton.Type != SimulationType.UnityPhysics)
-            {
-                return inputDeps;
-            }
-            JobHandle.CombineDependencies(inputDeps, simulationSingleton.EventDependency).Complete();
+            inputDeps.Complete();
             var events = simulationSingleton.CollisionEvents;
             for (int i = 0; i < events.Length; i++)
             {

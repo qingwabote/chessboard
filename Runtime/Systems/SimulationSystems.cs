@@ -6,49 +6,6 @@ using Unity.Transforms;
 
 namespace Unity.Physics.Systems
 {
-    [UpdateInGroup(typeof(PhysicsSimulationGroup), OrderFirst = true)]
-    public partial struct PhysicsSimulationPickerSystem : ISystem
-    {
-        NativeList<TriggerEventData> m_TriggerEvents;
-        NativeList<CollisionEventData> m_CollisionEvents;
-
-        public void OnCreate(ref SystemState state)
-        {
-            m_TriggerEvents = new NativeList<TriggerEventData>(64, Allocator.Persistent);
-            m_CollisionEvents = new NativeList<CollisionEventData>(64, Allocator.Persistent);
-            var entity = state.EntityManager.CreateEntity(typeof(SimulationSingleton));
-            state.EntityManager.SetName(entity, "SimulationSingleton");
-            SystemAPI.SetSingleton(new SimulationSingleton
-            {
-                Type = SimulationType.UnityPhysics,
-                TriggerEvents = m_TriggerEvents,
-                CollisionEvents = m_CollisionEvents,
-                EventDependency = default
-            });
-        }
-
-        public void OnDestroy(ref SystemState state)
-        {
-            if (m_TriggerEvents.IsCreated) m_TriggerEvents.Dispose();
-            if (m_CollisionEvents.IsCreated) m_CollisionEvents.Dispose();
-        }
-
-        [BurstCompile]
-        public void OnUpdate(ref SystemState state)
-        {
-            var step = SystemAPI.TryGetSingleton(out PhysicsStep physicsStep) ? physicsStep : PhysicsStep.Default;
-            m_TriggerEvents.Clear();
-            m_CollisionEvents.Clear();
-            SystemAPI.SetSingleton(new SimulationSingleton
-            {
-                Type = step.SimulationType,
-                TriggerEvents = m_TriggerEvents,
-                CollisionEvents = m_CollisionEvents,
-                EventDependency = default
-            });
-        }
-    }
-
     internal struct Contact
     {
         public int A;
@@ -77,6 +34,8 @@ namespace Unity.Physics.Systems
         NativeList<CollisionTests.Leaf> m_LeavesA;
         NativeList<CollisionTests.Leaf> m_LeavesB;
         NativeList<float3> m_Positions;
+        NativeList<TriggerEventData> m_TriggerEvents;
+        NativeList<CollisionEventData> m_CollisionEvents;
 
         public void OnCreate(ref SystemState state)
         {
@@ -89,6 +48,15 @@ namespace Unity.Physics.Systems
             m_LeavesA = new NativeList<CollisionTests.Leaf>(4, persistent);
             m_LeavesB = new NativeList<CollisionTests.Leaf>(4, persistent);
             m_Positions = new NativeList<float3>(256, persistent);
+            m_TriggerEvents = new NativeList<TriggerEventData>(64, persistent);
+            m_CollisionEvents = new NativeList<CollisionEventData>(64, persistent);
+            var entity = state.EntityManager.CreateEntity(typeof(SimulationSingleton));
+            state.EntityManager.SetName(entity, "SimulationSingleton");
+            SystemAPI.SetSingleton(new SimulationSingleton
+            {
+                TriggerEvents = m_TriggerEvents,
+                CollisionEvents = m_CollisionEvents
+            });
         }
 
         public void OnDestroy(ref SystemState state)
@@ -100,6 +68,8 @@ namespace Unity.Physics.Systems
             if (m_LeavesA.IsCreated) m_LeavesA.Dispose();
             if (m_LeavesB.IsCreated) m_LeavesB.Dispose();
             if (m_Positions.IsCreated) m_Positions.Dispose();
+            if (m_TriggerEvents.IsCreated) m_TriggerEvents.Dispose();
+            if (m_CollisionEvents.IsCreated) m_CollisionEvents.Dispose();
         }
 
         [BurstCompile]
@@ -107,10 +77,8 @@ namespace Unity.Physics.Systems
         {
             state.CompleteDependency();
             var step = SystemAPI.TryGetSingleton(out PhysicsStep physicsStep) ? physicsStep : PhysicsStep.Default;
-            if (step.SimulationType != SimulationType.UnityPhysics)
-            {
-                return;
-            }
+            m_TriggerEvents.Clear();
+            m_CollisionEvents.Clear();
 
             var collisionWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().PhysicsWorld.CollisionWorld;
             int numBodies = collisionWorld.NumBodies;

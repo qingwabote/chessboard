@@ -80,11 +80,6 @@ namespace Unity.Physics
         public float Angular;
     }
 
-    public struct PhysicsGravityFactor : IComponentData
-    {
-        public float Value;
-    }
-
     public struct EnsureUniqueColliderBlobTag : IComponentData
     {
     }
@@ -94,37 +89,17 @@ namespace Unity.Physics
         public BlobAssetReference<Collider> Value;
     }
 
-    public enum SimulationType : byte
-    {
-        NoPhysics = 0,
-        UnityPhysics = 1
-    }
-
     public struct PhysicsStep : IComponentData
     {
-        public SimulationType SimulationType;
-        public float3 Gravity;
-        public int SubstepCount;
-        public int SolverIterationCount;
-        public byte MultiThreaded;
         public float CollisionTolerance;
-        public byte SynchronizeCollisionWorld;
         public float MaxDynamicDepenetrationVelocity;
-        public float MaxStaticDepenetrationVelocity;
         /// <summary>Speculative contact distance: pairs closer than this produce contacts whose velocity constraints prevent predicted penetration this step.</summary>
         public float SpeculativeMargin;
 
         public static readonly PhysicsStep Default = new PhysicsStep
         {
-            SimulationType = SimulationType.UnityPhysics,
-            Gravity = new float3(0f, -9.81f, 0f),
-            SubstepCount = 1,
-            SolverIterationCount = 4,
-            MultiThreaded = 1,
             CollisionTolerance = CollisionWorld.DefaultCollisionTolerance,
-            SynchronizeCollisionWorld = 0,
             MaxDynamicDepenetrationVelocity = 3f,
-            MaxStaticDepenetrationVelocity = float.PositiveInfinity,
             SpeculativeMargin = 0.1f
         };
     }
