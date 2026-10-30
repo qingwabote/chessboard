@@ -50,9 +50,10 @@ namespace Unity.Physics.Systems
             m_Positions = new NativeList<float3>(256, persistent);
             m_TriggerEvents = new NativeList<TriggerEventData>(64, persistent);
             m_CollisionEvents = new NativeList<CollisionEventData>(64, persistent);
+
             var entity = state.EntityManager.CreateEntity(typeof(SimulationSingleton));
             state.EntityManager.SetName(entity, "SimulationSingleton");
-            SystemAPI.SetSingleton(new SimulationSingleton
+            state.EntityManager.SetComponentData(entity, new SimulationSingleton
             {
                 TriggerEvents = m_TriggerEvents,
                 CollisionEvents = m_CollisionEvents
@@ -80,21 +81,22 @@ namespace Unity.Physics.Systems
             m_TriggerEvents.Clear();
             m_CollisionEvents.Clear();
 
-            var collisionWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().PhysicsWorld.CollisionWorld;
+            var physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().PhysicsWorld;
+            var collisionWorld = physicsWorld.CollisionWorld;
+            var dynamicsWorld = physicsWorld.DynamicsWorld;
             int numBodies = collisionWorld.NumBodies;
             if (numBodies == 0)
             {
                 return;
             }
 
-            int numDynamic = collisionWorld.m_NumDynamicBodies;
-            var bodies = collisionWorld.m_Bodies;
-            var eabbs = collisionWorld.m_Eabbs;
-            var filters = collisionWorld.m_Filters;
-            var materialFlags = collisionWorld.m_MaterialFlags;
-            var kinematics = collisionWorld.m_Kinematics;
-            var invMasses = collisionWorld.m_InvMasses;
-            float cellSize = collisionWorld.m_CellSize;
+            int numDynamic = collisionWorld.NumDynamicBodies;
+            var eabbs = collisionWorld.Eabbs;
+            var filters = collisionWorld.Filters;
+            var materialFlags = collisionWorld.MaterialFlags;
+            var cellBodyIndices = collisionWorld.CellBodyIndices;
+            var bodyIndices = collisionWorld.BodyIndices;
+            float cellSize = collisionWorld.CellSize;
             float dt = SystemAPI.Time.DeltaTime;
             var simulation = SystemAPI.GetSingleton<SimulationSingleton>();
 
@@ -106,6 +108,7 @@ namespace Unity.Physics.Systems
             }
 
             m_Pairs.Clear();
+            int gridWidth = collisionWorld.GridMax.x - collisionWorld.GridMin.x + 1;
             for (int i = 0; i < numDynamic; i++)
             {
                 m_Epoch++;
@@ -115,17 +118,16 @@ namespace Unity.Physics.Systems
                 var eabbI = eabbs[i];
                 int2 min = (int2)math.floor(eabbI.Min / cellSize);
                 int2 max = (int2)math.floor(eabbI.Max / cellSize);
-                var gridMax = collisionWorld.m_GridMin + collisionWorld.m_GridSize - 1;
-                min = math.clamp(min, collisionWorld.m_GridMin, gridMax);
-                max = math.clamp(max, collisionWorld.m_GridMin, gridMax);
+                min = math.clamp(min, collisionWorld.GridMin, collisionWorld.GridMax);
+                max = math.clamp(max, collisionWorld.GridMin, collisionWorld.GridMax);
                 for (int x = min.x; x <= max.x; x++)
                 {
                     for (int z = min.y; z <= max.y; z++)
                     {
-                        int cellIndex = (x - collisionWorld.m_GridMin.x) + (z - collisionWorld.m_GridMin.y) * collisionWorld.m_GridSize.x;
-                        for (int k = collisionWorld.m_CellBodyIndices[cellIndex]; k < collisionWorld.m_CellBodyIndices[cellIndex + 1]; k++)
+                        int cellIndex = (x - collisionWorld.GridMin.x) + (z - collisionWorld.GridMin.y) * gridWidth;
+                        for (int k = cellBodyIndices[cellIndex]; k < cellBodyIndices[cellIndex + 1]; k++)
                         {
-                            int j = collisionWorld.m_BodyIndices[k];
+                            int j = bodyIndices[k];
                             if (j == i) continue;
                             if (j < numDynamic && j < i) continue;
                             if (m_Seen[j] == m_Epoch) continue;
@@ -142,6 +144,8 @@ namespace Unity.Physics.Systems
                 }
             }
 
+            var bodies = collisionWorld.Bodies;
+            var kinematics = dynamicsWorld.Kinematics;
             m_Contacts.Clear();
             m_Speculative.Clear();
             for (int p = 0; p < m_Pairs.Length; p++)
@@ -223,6 +227,7 @@ namespace Unity.Physics.Systems
                 }
             }
 
+            var invMasses = dynamicsWorld.InvMasses;
             bool hasContacts = m_Contacts.Length > 0;
             m_Positions.Clear();
             if (hasContacts)
@@ -247,7 +252,7 @@ namespace Unity.Physics.Systems
             }
 
             bool hasSpeculative = m_Speculative.Length > 0;
-            var linearVelocities = collisionWorld.m_LinearVelocities;
+            var linearVelocities = dynamicsWorld.LinearVelocities;
             if (hasSpeculative)
             {
                 for (int c = 0; c < m_Speculative.Length; c++)
@@ -280,8 +285,8 @@ namespace Unity.Physics.Systems
                 }
             }
 
-            var dampingLinear = collisionWorld.m_DampingLinear;
-            var dampingAngular = collisionWorld.m_DampingAngular;
+            var dampingLinear = dynamicsWorld.DampingLinear;
+            var dampingAngular = dynamicsWorld.DampingAngular;
             var transformHandle = SystemAPI.GetComponentTypeHandle<LocalTransform>();
             var velocityHandle = SystemAPI.GetComponentTypeHandle<PhysicsVelocity>();
             var massHandle = SystemAPI.GetComponentTypeHandle<PhysicsMass>(true);

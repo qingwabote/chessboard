@@ -12,22 +12,46 @@ namespace Unity.Physics.Systems
     {
         const float k_CellSize = 1.5f;
 
+        NativeArray<RigidBody> m_Bodies;
+        NativeArray<Aabb2> m_Eabbs;
+        NativeArray<CollisionFilter> m_Filters;
+        NativeArray<byte> m_MaterialFlags;
+        NativeArray<int> m_CellBodyIndices;
+        NativeArray<int> m_BodyIndices;
+        NativeArray<byte> m_Kinematics;
+        NativeArray<float> m_InvMasses;
+        NativeArray<float3> m_LinearVelocities;
+        NativeArray<float> m_DampingLinear;
+        NativeArray<float> m_DampingAngular;
+
         public void OnCreate(ref SystemState state)
         {
+            var persistent = Allocator.Persistent;
+            m_Bodies = new NativeArray<RigidBody>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_Eabbs = new NativeArray<Aabb2>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_Filters = new NativeArray<CollisionFilter>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_MaterialFlags = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_CellBodyIndices = new NativeArray<int>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_BodyIndices = new NativeArray<int>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_Kinematics = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_InvMasses = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_LinearVelocities = new NativeArray<float3>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_DampingLinear = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_DampingAngular = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
+
             var entity = state.EntityManager.CreateEntity(typeof(PhysicsWorldSingleton));
             state.EntityManager.SetName(entity, "PhysicsWorldSingleton");
-            SystemAPI.SetSingleton(new PhysicsWorldSingleton
+            state.EntityManager.SetComponentData(entity, new PhysicsWorldSingleton
             {
                 PhysicsWorld = new PhysicsWorld
                 {
-                    CollisionWorld = new CollisionWorld(k_CellSize)
+                    CollisionWorld = new CollisionWorld(
+                        m_Bodies, m_Eabbs, m_Filters, m_MaterialFlags, m_CellBodyIndices, m_BodyIndices,
+                        0, default, default, k_CellSize),
+                    DynamicsWorld = new DynamicsWorld(
+                        m_Kinematics, m_InvMasses, m_LinearVelocities, m_DampingLinear, m_DampingAngular)
                 }
             });
-        }
-
-        public void OnDestroy(ref SystemState state)
-        {
-            SystemAPI.GetSingletonRW<PhysicsWorldSingleton>().ValueRW.PhysicsWorld.CollisionWorld.Dispose();
         }
 
         [BurstCompile]
@@ -53,18 +77,18 @@ namespace Unity.Physics.Systems
                 return ref array;
             }
 
-            ref var collisionWorld = ref SystemAPI.GetSingletonRW<PhysicsWorldSingleton>().ValueRW.PhysicsWorld.CollisionWorld;
-            var bodies = Grow(ref collisionWorld.m_Bodies, bodyCount);
-            var eabbs = Grow(ref collisionWorld.m_Eabbs, bodyCount);
-            var filters = Grow(ref collisionWorld.m_Filters, bodyCount);
-            var flags = Grow(ref collisionWorld.m_MaterialFlags, bodyCount);
-            var kinematics = Grow(ref collisionWorld.m_Kinematics, bodyCount);
-            var invMasses = Grow(ref collisionWorld.m_InvMasses, bodyCount);
-            var linearVelocities = Grow(ref collisionWorld.m_LinearVelocities, bodyCount);
-            var dampingLinear = Grow(ref collisionWorld.m_DampingLinear, bodyCount);
-            var dampingAngular = Grow(ref collisionWorld.m_DampingAngular, bodyCount);
+            var bodies = Grow(ref m_Bodies, bodyCount);
+            var eabbs = Grow(ref m_Eabbs, bodyCount);
+            var filters = Grow(ref m_Filters, bodyCount);
+            var flags = Grow(ref m_MaterialFlags, bodyCount);
+            var kinematics = Grow(ref m_Kinematics, bodyCount);
+            var invMasses = Grow(ref m_InvMasses, bodyCount);
+            var linearVelocities = Grow(ref m_LinearVelocities, bodyCount);
+            var dampingLinear = Grow(ref m_DampingLinear, bodyCount);
+            var dampingAngular = Grow(ref m_DampingAngular, bodyCount);
 
             int bodyIndex = 0;
+            int numDynamicBodies = 0;
             int CellIndex(int2 cell)
             {
                 return (cell.x - gridMin.x) + (cell.y - gridMin.y) * gridSize.x;
@@ -178,7 +202,7 @@ namespace Unity.Physics.Systems
                         bodyIndex++;
                     }
                 }
-                collisionWorld.m_NumDynamicBodies = bodyIndex;
+                numDynamicBodies = bodyIndex;
             }
 
             {
@@ -251,11 +275,11 @@ namespace Unity.Physics.Systems
                 cellBodyIndex += count;
             }
 
-            Grow(ref collisionWorld.m_CellBodyIndices, cellTotal + 1);
-            collisionWorld.m_CellBodyIndices[cellTotal] = cellBodyIndex;
-            NativeArray<int>.Copy(cellBodyIndices, collisionWorld.m_CellBodyIndices, cellTotal);
+            Grow(ref m_CellBodyIndices, cellTotal + 1);
+            m_CellBodyIndices[cellTotal] = cellBodyIndex;
+            NativeArray<int>.Copy(cellBodyIndices, m_CellBodyIndices, cellTotal);
 
-            var bodyIndices = Grow(ref collisionWorld.m_BodyIndices, cellBodyIndex);
+            var bodyIndices = Grow(ref m_BodyIndices, cellBodyIndex);
             for (int i = 0; i < bodyIndex; i++)
             {
                 var min = occupiedMin[i];
@@ -269,11 +293,32 @@ namespace Unity.Physics.Systems
                 }
             }
 
-            collisionWorld.m_NumBodies = bodyIndex;
-            collisionWorld.m_GridMin = gridMin;
-            collisionWorld.m_GridSize = gridSize;
+            ref var physicsWorld = ref SystemAPI.GetSingletonRW<PhysicsWorldSingleton>().ValueRW.PhysicsWorld;
+            physicsWorld.CollisionWorld = new CollisionWorld(
+                bodies.GetSubArray(0, bodyIndex), eabbs.GetSubArray(0, bodyIndex),
+                filters.GetSubArray(0, bodyIndex), flags.GetSubArray(0, bodyIndex),
+                m_CellBodyIndices.GetSubArray(0, cellTotal + 1), bodyIndices.GetSubArray(0, cellBodyIndex),
+                numDynamicBodies, gridMin, gridMax, k_CellSize);
+            physicsWorld.DynamicsWorld = new DynamicsWorld(
+                kinematics.GetSubArray(0, bodyIndex), invMasses.GetSubArray(0, bodyIndex),
+                linearVelocities.GetSubArray(0, bodyIndex), dampingLinear.GetSubArray(0, bodyIndex),
+                dampingAngular.GetSubArray(0, bodyIndex));
         }
 
+        public void OnDestroy(ref SystemState state)
+        {
+            if (m_Bodies.IsCreated) m_Bodies.Dispose();
+            if (m_Eabbs.IsCreated) m_Eabbs.Dispose();
+            if (m_Filters.IsCreated) m_Filters.Dispose();
+            if (m_MaterialFlags.IsCreated) m_MaterialFlags.Dispose();
+            if (m_CellBodyIndices.IsCreated) m_CellBodyIndices.Dispose();
+            if (m_BodyIndices.IsCreated) m_BodyIndices.Dispose();
+            if (m_Kinematics.IsCreated) m_Kinematics.Dispose();
+            if (m_InvMasses.IsCreated) m_InvMasses.Dispose();
+            if (m_LinearVelocities.IsCreated) m_LinearVelocities.Dispose();
+            if (m_DampingLinear.IsCreated) m_DampingLinear.Dispose();
+            if (m_DampingAngular.IsCreated) m_DampingAngular.Dispose();
+        }
 
         // Physics internally represents all rigid bodies in world space. If a static body is in a
         // hierarchy, its local-to-world matrix must be decomposed when building the physics world. This
