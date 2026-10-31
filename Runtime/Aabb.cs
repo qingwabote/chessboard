@@ -55,8 +55,6 @@ namespace Unity.Physics
 
         public bool Equals(Aabb other) => Min.Equals(other.Min) && Max.Equals(other.Max);
 
-        public override bool Equals(object obj) => obj is Aabb other && Equals(other);
-
         public override int GetHashCode() => Min.GetHashCode() * 397 ^ Max.GetHashCode();
     }
 }

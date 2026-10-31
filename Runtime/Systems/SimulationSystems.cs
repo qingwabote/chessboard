@@ -96,7 +96,6 @@ namespace Unity.Physics.Systems
             var materialFlags = collisionWorld.MaterialFlags;
             var cellBodyIndices = collisionWorld.CellBodyIndices;
             var bodyIndices = collisionWorld.BodyIndices;
-            float cellSize = collisionWorld.CellSize;
             float dt = SystemAPI.Time.DeltaTime;
             var simulation = SystemAPI.GetSingleton<SimulationSingleton>();
 
@@ -108,38 +107,29 @@ namespace Unity.Physics.Systems
             }
 
             m_Pairs.Clear();
-            int gridWidth = collisionWorld.GridMax.x - collisionWorld.GridMin.x + 1;
+            int gridWidth = collisionWorld.Grid.Max.x - collisionWorld.Grid.Min.x + 1;
             for (int i = 0; i < numDynamic; i++)
             {
                 m_Epoch++;
-                uint belongsI = filters[i].BelongsTo;
-                uint collidesI = filters[i].CollidesWith;
-                byte flagsI = materialFlags[i];
+                var filterI = filters[i];
                 var eabbI = eabbs[i];
-                int2 min = (int2)math.floor(eabbI.Min / cellSize);
-                int2 max = (int2)math.floor(eabbI.Max / cellSize);
-                min = math.clamp(min, collisionWorld.GridMin, collisionWorld.GridMax);
-                max = math.clamp(max, collisionWorld.GridMin, collisionWorld.GridMax);
-                for (int x = min.x; x <= max.x; x++)
+                foreach (int2 xy in collisionWorld.CellRange(eabbI))
                 {
-                    for (int z = min.y; z <= max.y; z++)
+                    int cellIndex = (xy.x - collisionWorld.Grid.Min.x) + (xy.y - collisionWorld.Grid.Min.y) * gridWidth;
+                    for (int k = cellBodyIndices[cellIndex]; k < cellBodyIndices[cellIndex + 1]; k++)
                     {
-                        int cellIndex = (x - collisionWorld.GridMin.x) + (z - collisionWorld.GridMin.y) * gridWidth;
-                        for (int k = cellBodyIndices[cellIndex]; k < cellBodyIndices[cellIndex + 1]; k++)
-                        {
-                            int j = bodyIndices[k];
-                            if (j == i) continue;
-                            if (j < numDynamic && j < i) continue;
-                            if (m_Seen[j] == m_Epoch) continue;
-                            var filterJ = filters[j];
-                            if ((collidesI & filterJ.BelongsTo) == 0) continue;
-                            if ((filterJ.CollidesWith & belongsI) == 0) continue;
-                            m_Seen[j] = m_Epoch;
-                            var eabbJ = eabbs[j];
-                            if (math.any(eabbI.Max < eabbJ.Min) || math.any(eabbI.Min > eabbJ.Max)) continue;
-                            if (((MaterialFlags)(flagsI | materialFlags[j]) & MaterialFlags.DisableCollisions) != 0) continue;
-                            m_Pairs.Add(new int2(i, j));
-                        }
+                        int j = bodyIndices[k];
+                        if (j == i) continue;
+                        if (j < numDynamic && j < i) continue;
+                        if (m_Seen[j] == m_Epoch) continue;
+                        var filterJ = filters[j];
+                        if ((filterI.CollidesWith & filterJ.BelongsTo) == 0) continue;
+                        if ((filterJ.CollidesWith & filterI.BelongsTo) == 0) continue;
+                        m_Seen[j] = m_Epoch;
+                        var eabbJ = eabbs[j];
+                        if (math.any(eabbI.Max < eabbJ.Min) || math.any(eabbI.Min > eabbJ.Max)) continue;
+                        if (((MaterialFlags)(materialFlags[i] | materialFlags[j]) & MaterialFlags.DisableCollisions) != 0) continue;
+                        m_Pairs.Add(new int2(i, j));
                     }
                 }
             }

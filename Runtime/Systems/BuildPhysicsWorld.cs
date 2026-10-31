@@ -47,7 +47,7 @@ namespace Unity.Physics.Systems
                 {
                     CollisionWorld = new CollisionWorld(
                         m_Bodies, m_Eabbs, m_Filters, m_MaterialFlags, m_CellBodyIndices, m_BodyIndices,
-                        0, default, default, k_CellSize),
+                        0, default, k_CellSize),
                     DynamicsWorld = new DynamicsWorld(
                         m_Kinematics, m_InvMasses, m_LinearVelocities, m_DampingLinear, m_DampingAngular)
                 }
@@ -63,10 +63,11 @@ namespace Unity.Physics.Systems
             int bodyCount = SystemAPI.QueryBuilder().WithAll<PhysicsCollider, LocalTransform>().Build().CalculateEntityCount();
 
             const float k_GroundMargin = 24f;
-            CameraExtensions.GetGroundAABB(out var groundMin, out var groundMax);
-            var gridMin = (int2)math.floor((groundMin - k_GroundMargin) / k_CellSize);
-            var gridMax = (int2)math.floor((groundMax + k_GroundMargin) / k_CellSize);
-            var gridSize = gridMax - gridMin + 1;
+            Aabb2 ground = default;
+            CameraExtensions.GetGroundAABB(out ground.Min, out ground.Max);
+            ground.Expand(k_GroundMargin);
+            Range2 grid = (int4)math.floor(ground.Val / k_CellSize);
+            var gridSize = grid.Max - grid.Min + 1;
             var cellTotal = gridSize.x * gridSize.y;
 
             static ref NativeArray<T> Grow<T>(ref NativeArray<T> array, int capacity) where T : unmanaged
@@ -91,24 +92,18 @@ namespace Unity.Physics.Systems
             int numDynamicBodies = 0;
             int CellIndex(int2 cell)
             {
-                return (cell.x - gridMin.x) + (cell.y - gridMin.y) * gridSize.x;
+                return (cell.x - grid.Min.x) + (cell.y - grid.Min.y) * gridSize.x;
             }
             var occupancy = new NativeArray<int>(cellTotal, Allocator.Temp, NativeArrayOptions.ClearMemory);
-            var occupiedMin = new NativeArray<int2>(bodyCount, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-            var occupiedMax = new NativeArray<int2>(bodyCount, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-            void Occupy(float2 min, float2 max)
+            var occupied = new NativeArray<Range2>(bodyCount, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+            void Occupy(Aabb2 eabb)
             {
-                var cellMin = math.max((int2)math.floor(min / k_CellSize), gridMin);
-                var cellMax = math.min((int2)math.floor(max / k_CellSize), gridMax);
-                for (int x = cellMin.x; x <= cellMax.x; x++)
+                Range2 cells = math.clamp((int4)math.floor(eabb.Val / k_CellSize), grid.Min.xyxy, grid.Max.xyxy);
+                foreach (int2 xy in cells)
                 {
-                    for (int y = cellMin.y; y <= cellMax.y; y++)
-                    {
-                        occupancy[CellIndex(new int2(x, y))]++;
-                    }
+                    occupancy[CellIndex(xy)]++;
                 }
-                occupiedMin[bodyIndex] = cellMin;
-                occupiedMax[bodyIndex] = cellMax;
+                occupied[bodyIndex] = cells;
             }
 
             var colliderHandle = SystemAPI.GetComponentTypeHandle<PhysicsCollider>(true);
@@ -198,7 +193,7 @@ namespace Unity.Physics.Systems
                             dampingLinear[bodyIndex] = 0f;
                             dampingAngular[bodyIndex] = 0f;
                         }
-                        Occupy(eabb.Min, eabb.Max);
+                        Occupy(eabb);
                         bodyIndex++;
                     }
                 }
@@ -260,7 +255,7 @@ namespace Unity.Physics.Systems
                         linearVelocities[bodyIndex] = float3.zero;
                         dampingLinear[bodyIndex] = 0f;
                         dampingAngular[bodyIndex] = 0f;
-                        Occupy(aabb.Min, aabb.Max);
+                        Occupy(aabb);
                         bodyIndex++;
                     }
                 }
@@ -282,14 +277,10 @@ namespace Unity.Physics.Systems
             var bodyIndices = Grow(ref m_BodyIndices, cellBodyIndex);
             for (int i = 0; i < bodyIndex; i++)
             {
-                var min = occupiedMin[i];
-                var max = occupiedMax[i];
-                for (int x = min.x; x <= max.x; x++)
+                var cells = occupied[i];
+                foreach (int2 xy in cells)
                 {
-                    for (int y = min.y; y <= max.y; y++)
-                    {
-                        bodyIndices[cellBodyIndices[CellIndex(new int2(x, y))]++] = i;
-                    }
+                    bodyIndices[cellBodyIndices[CellIndex(xy)]++] = i;
                 }
             }
 
@@ -298,7 +289,7 @@ namespace Unity.Physics.Systems
                 bodies.GetSubArray(0, bodyIndex), eabbs.GetSubArray(0, bodyIndex),
                 filters.GetSubArray(0, bodyIndex), flags.GetSubArray(0, bodyIndex),
                 m_CellBodyIndices.GetSubArray(0, cellTotal + 1), bodyIndices.GetSubArray(0, cellBodyIndex),
-                numDynamicBodies, gridMin, gridMax, k_CellSize);
+                numDynamicBodies, grid, k_CellSize);
             physicsWorld.DynamicsWorld = new DynamicsWorld(
                 kinematics.GetSubArray(0, bodyIndex), invMasses.GetSubArray(0, bodyIndex),
                 linearVelocities.GetSubArray(0, bodyIndex), dampingLinear.GetSubArray(0, bodyIndex),

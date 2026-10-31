@@ -30,16 +30,15 @@ namespace Unity.Physics
         private NativeArray<CollisionFilter> m_Filters;
         private NativeArray<byte> m_MaterialFlags;
 
-        public readonly int NumDynamicBodies;
-        public readonly int2 GridMin;
-        public readonly int2 GridMax;
+        internal readonly Range2 Grid;
         public readonly float CellSize;
+        public readonly int NumDynamicBodies;
 
         internal CollisionWorld(
             NativeArray<RigidBody> bodies, NativeArray<Aabb2> eabbs,
             NativeArray<CollisionFilter> filters, NativeArray<byte> materialFlags,
             NativeArray<int> cellBodyIndices, NativeArray<int> bodyIndices,
-            int numDynamicBodies, int2 gridMin, int2 gridMax, float cellSize)
+            int numDynamicBodies, Range2 grid, float cellSize)
         {
             m_Bodies = bodies;
             m_Eabbs = eabbs;
@@ -48,8 +47,7 @@ namespace Unity.Physics
             m_CellBodyIndices = cellBodyIndices;
             m_BodyIndices = bodyIndices;
             NumDynamicBodies = numDynamicBodies;
-            GridMin = gridMin;
-            GridMax = gridMax;
+            Grid = grid;
             CellSize = cellSize;
         }
 
@@ -60,38 +58,31 @@ namespace Unity.Physics
                 return false;
             }
             int hitsBefore = allHits.Length;
-            Aabb2 q = input.Aabb;
-            var cells = CellRange(q);
-            int gridWidth = GridMax.x - GridMin.x + 1;
-            for (int x = cells.x; x <= cells.y; x++)
+            Aabb2 aabb = input.Aabb;
+            var cells = CellRange(aabb);
+            int gridWidth = Grid.Max.x - Grid.Min.x + 1;
+            foreach (int2 xy in cells)
             {
-                for (int z = cells.z; z <= cells.w; z++)
+                int cellIndex = (xy.x - Grid.Min.x) + (xy.y - Grid.Min.y) * gridWidth;
+                for (int k = m_CellBodyIndices[cellIndex]; k < m_CellBodyIndices[cellIndex + 1]; k++)
                 {
-                    int cellIndex = (x - GridMin.x) + (z - GridMin.y) * gridWidth;
-                    for (int k = m_CellBodyIndices[cellIndex]; k < m_CellBodyIndices[cellIndex + 1]; k++)
+                    int bodyIndex = m_BodyIndices[k];
+                    if (!m_Eabbs[bodyIndex].Overlaps(aabb)) continue;
+                    if (!CollisionFilter.IsCollisionEnabled(input.Filter, m_Filters[bodyIndex])) continue;
+                    bool duplicate = false;
+                    for (int d = hitsBefore; d < allHits.Length; d++)
                     {
-                        int bodyIndex = m_BodyIndices[k];
-                        if (!m_Eabbs[bodyIndex].Overlaps(q)) continue;
-                        if (!CollisionFilter.IsCollisionEnabled(input.Filter, m_Filters[bodyIndex])) continue;
-                        bool duplicate = false;
-                        for (int d = hitsBefore; d < allHits.Length; d++)
-                        {
-                            if (allHits[d] == bodyIndex) { duplicate = true; break; }
-                        }
-                        if (!duplicate) allHits.Add(bodyIndex);
+                        if (allHits[d] == bodyIndex) { duplicate = true; break; }
                     }
+                    if (!duplicate) allHits.Add(bodyIndex);
                 }
             }
             return allHits.Length > hitsBefore;
         }
 
-        internal int4 CellRange(Aabb2 aabb)
+        internal Range2 CellRange(Aabb2 aabb)
         {
-            var min = (int2)math.floor(aabb.Min / CellSize);
-            var max = (int2)math.floor(aabb.Max / CellSize);
-            min = math.clamp(min, GridMin, GridMax);
-            max = math.clamp(max, GridMin, GridMax);
-            return new int4(min.x, max.x, min.y, max.y);
+            return math.clamp((int4)math.floor(aabb.Val / CellSize), Grid.Min.xyxy, Grid.Max.xyxy);
         }
 
         public bool OverlapSphere(
@@ -150,22 +141,19 @@ namespace Unity.Physics
                 return;
             }
             var cells = CellRange(aabb);
-            int gridWidth = GridMax.x - GridMin.x + 1;
-            for (int x = cells.x; x <= cells.y; x++)
+            int gridWidth = Grid.Max.x - Grid.Min.x + 1;
+            foreach (int2 xy in cells)
             {
-                for (int z = cells.z; z <= cells.w; z++)
+                int cellIndex = (xy.x - Grid.Min.x) + (xy.y - Grid.Min.y) * gridWidth;
+                for (int k = m_CellBodyIndices[cellIndex]; k < m_CellBodyIndices[cellIndex + 1]; k++)
                 {
-                    int cellIndex = (x - GridMin.x) + (z - GridMin.y) * gridWidth;
-                    for (int k = m_CellBodyIndices[cellIndex]; k < m_CellBodyIndices[cellIndex + 1]; k++)
+                    int bodyIndex = m_BodyIndices[k];
+                    bool duplicate = false;
+                    for (int d = 0; d < results.Length; d++)
                     {
-                        int bodyIndex = m_BodyIndices[k];
-                        bool duplicate = false;
-                        for (int d = 0; d < results.Length; d++)
-                        {
-                            if (results[d] == bodyIndex) { duplicate = true; break; }
-                        }
-                        if (!duplicate) results.Add(bodyIndex);
+                        if (results[d] == bodyIndex) { duplicate = true; break; }
                     }
+                    if (!duplicate) results.Add(bodyIndex);
                 }
             }
         }
