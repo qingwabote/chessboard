@@ -64,6 +64,8 @@ namespace Unity.Physics.Systems
         {
             state.CompleteDependency();
             var step = SystemAPI.TryGetSingleton(out PhysicsStep physicsStep) ? physicsStep : PhysicsStep.Default;
+            step.MaxDynamicDepenetrationVelocity = step.MaxDynamicDepenetrationVelocity <= 0f ? PhysicsStep.DefaultMaxDynamicDepenetrationVelocity : step.MaxDynamicDepenetrationVelocity;
+            step.MaxStaticDepenetrationVelocity = step.MaxStaticDepenetrationVelocity <= 0f ? PhysicsStep.DefaultMaxStaticDepenetrationVelocity : step.MaxStaticDepenetrationVelocity;
             m_TriggerEvents.Clear();
             m_CollisionEvents.Clear();
 
@@ -212,7 +214,7 @@ namespace Unity.Physics.Systems
                 float endGap = contact.Distance + gapRate * dt;
                 if (endGap >= 0f) continue;
                 bool staticPair = kinematics[contact.A] != 0 || kinematics[contact.B] != 0;
-                float maxDepenetrationVelocity = staticPair ? float.MaxValue : step.MaxDynamicDepenetrationVelocity;
+                float maxDepenetrationVelocity = staticPair ? step.MaxStaticDepenetrationVelocity : step.MaxDynamicDepenetrationVelocity;
                 float impulse = math.min(-endGap / (dt * sum), (maxDepenetrationVelocity - gapRate) / sum);
                 if (impulse <= 0f) continue;
                 linearVelocities[contact.A] += contact.Normal * (impulse * invA);

@@ -93,11 +93,16 @@ namespace Unity.Physics
     {
         public float CollisionTolerance;
         public float MaxDynamicDepenetrationVelocity;
+        public float MaxStaticDepenetrationVelocity;
+
+        public const float DefaultMaxDynamicDepenetrationVelocity = 3f;
+        public const float DefaultMaxStaticDepenetrationVelocity = float.PositiveInfinity;
 
         public static readonly PhysicsStep Default = new PhysicsStep
         {
             CollisionTolerance = CollisionWorld.DefaultCollisionTolerance,
-            MaxDynamicDepenetrationVelocity = 3f
+            MaxDynamicDepenetrationVelocity = DefaultMaxDynamicDepenetrationVelocity,
+            MaxStaticDepenetrationVelocity = DefaultMaxStaticDepenetrationVelocity
         };
     }
 }
