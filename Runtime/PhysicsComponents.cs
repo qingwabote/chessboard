@@ -93,14 +93,11 @@ namespace Unity.Physics
     {
         public float CollisionTolerance;
         public float MaxDynamicDepenetrationVelocity;
-        /// <summary>Speculative contact distance: pairs closer than this produce contacts whose velocity constraints prevent predicted penetration this step.</summary>
-        public float SpeculativeMargin;
 
         public static readonly PhysicsStep Default = new PhysicsStep
         {
             CollisionTolerance = CollisionWorld.DefaultCollisionTolerance,
-            MaxDynamicDepenetrationVelocity = 3f,
-            SpeculativeMargin = 0.1f
+            MaxDynamicDepenetrationVelocity = 3f
         };
     }
 }

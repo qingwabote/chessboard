@@ -122,12 +122,14 @@ namespace Unity.Physics.Systems
 
             var bodies = collisionWorld.Bodies;
             var kinematics = dynamicsWorld.Kinematics;
+            var linearVelocities = dynamicsWorld.LinearVelocities;
             m_Contacts.Clear();
             for (int p = 0; p < m_Pairs.Length; p++)
             {
                 int i = m_Pairs[p].x;
                 int j = m_Pairs[p].y;
                 bool bothKinematic = kinematics[i] != 0 && kinematics[j] != 0;
+                float band = math.length(linearVelocities[i] - linearVelocities[j]) * dt + step.CollisionTolerance;
 
                 m_LeavesA.Clear();
                 m_LeavesB.Clear();
@@ -146,10 +148,10 @@ namespace Unity.Physics.Systems
 
                         if (!CollisionTests.TestLeaves(m_LeavesA[la], m_LeavesB[lb], out var normal, out var depth))
                         {
-                            if (step.SpeculativeMargin > 0f && !bothKinematic && combined != CollisionResponsePolicy.RaiseTriggerEvents)
+                            if (!bothKinematic && combined != CollisionResponsePolicy.RaiseTriggerEvents)
                             {
                                 var gap = CollisionTests.LeafPairDistance(m_LeavesA[la], m_LeavesB[lb], out var gapNormal);
-                                if (gap <= step.SpeculativeMargin)
+                                if (gap <= band)
                                 {
                                     m_Contacts.Add(new Contact
                                     {
@@ -199,7 +201,6 @@ namespace Unity.Physics.Systems
             }
 
             var invMasses = dynamicsWorld.InvMasses;
-            var linearVelocities = dynamicsWorld.LinearVelocities;
             for (int c = 0; c < m_Contacts.Length; c++)
             {
                 var contact = m_Contacts[c];

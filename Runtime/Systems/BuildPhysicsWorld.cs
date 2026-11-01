@@ -162,7 +162,7 @@ namespace Unity.Physics.Systems
                         var uniform = math.min(
                             math.length(velocities[i].Angular) * dt * mass.AngularExpansionFactor,
                             mass.AngularExpansionFactor);
-                        var margin = uniform + step.CollisionTolerance * 0.5f + step.SpeculativeMargin;
+                        var margin = uniform + step.CollisionTolerance * 0.5f;
                         Aabb2 eabb = new Aabb2
                         {
                             Min = math.min(aabb.Min, aabb.Min + velocities[i].Linear.xz * dt) - margin,
