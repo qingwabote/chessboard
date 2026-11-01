@@ -17,8 +17,6 @@ namespace Unity.Physics
             return CompoundFromChild.Equals(other.CompoundFromChild) && Collider.Equals(other.Collider);
         }
 
-        public override bool Equals(object obj) => obj is ColliderBlobInstance other && Equals(other);
-
         public override int GetHashCode() => CompoundFromChild.GetHashCode() * 397 ^ Collider.GetHashCode();
     }
 

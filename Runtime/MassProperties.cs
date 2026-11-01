@@ -19,8 +19,6 @@ namespace Unity.Physics
             return Transform.Equals(other.Transform) && InertiaTensor.Equals(other.InertiaTensor);
         }
 
-        public override bool Equals(object obj) => obj is MassDistribution other && Equals(other);
-
         public override int GetHashCode() => Transform.GetHashCode() * 397 ^ InertiaTensor.GetHashCode();
     }
 
@@ -88,8 +86,6 @@ namespace Unity.Physics
                 && Volume.Equals(other.Volume)
                 && AngularExpansionFactor.Equals(other.AngularExpansionFactor);
         }
-
-        public override bool Equals(object obj) => obj is MassProperties other && Equals(other);
 
         public override int GetHashCode()
         {

@@ -11,14 +11,6 @@ namespace Unity.Physics.Systems
         public int A;
         public int B;
         public float3 Normal;
-        public float Depth;
-    }
-
-    internal struct SpeculativeContact
-    {
-        public int A;
-        public int B;
-        public float3 Normal;
         public float Distance;
         public bool RaisesEvents;
     }
@@ -28,7 +20,6 @@ namespace Unity.Physics.Systems
     {
         NativeList<int2> m_Pairs;
         NativeList<Contact> m_Contacts;
-        NativeList<SpeculativeContact> m_Speculative;
         NativeArray<int> m_Seen;
         int m_Epoch;
         NativeList<CollisionTests.Leaf> m_LeavesA;
@@ -42,7 +33,6 @@ namespace Unity.Physics.Systems
             var persistent = Allocator.Persistent;
             m_Pairs = new NativeList<int2>(256, persistent);
             m_Contacts = new NativeList<Contact>(128, persistent);
-            m_Speculative = new NativeList<SpeculativeContact>(64, persistent);
             m_Seen = new NativeArray<int>(256, persistent, NativeArrayOptions.ClearMemory);
             m_Epoch = 0;
             m_LeavesA = new NativeList<CollisionTests.Leaf>(4, persistent);
@@ -64,7 +54,6 @@ namespace Unity.Physics.Systems
         {
             if (m_Pairs.IsCreated) m_Pairs.Dispose();
             if (m_Contacts.IsCreated) m_Contacts.Dispose();
-            if (m_Speculative.IsCreated) m_Speculative.Dispose();
             if (m_Seen.IsCreated) m_Seen.Dispose();
             if (m_LeavesA.IsCreated) m_LeavesA.Dispose();
             if (m_LeavesB.IsCreated) m_LeavesB.Dispose();
@@ -137,7 +126,6 @@ namespace Unity.Physics.Systems
             var bodies = collisionWorld.Bodies;
             var kinematics = dynamicsWorld.Kinematics;
             m_Contacts.Clear();
-            m_Speculative.Clear();
             for (int p = 0; p < m_Pairs.Length; p++)
             {
                 int i = m_Pairs[p].x;
@@ -166,7 +154,7 @@ namespace Unity.Physics.Systems
                                 var gap = CollisionTests.LeafPairDistance(m_LeavesA[la], m_LeavesB[lb], out var gapNormal);
                                 if (gap <= step.SpeculativeMargin)
                                 {
-                                    m_Speculative.Add(new SpeculativeContact
+                                    m_Contacts.Add(new Contact
                                     {
                                         A = i,
                                         B = j,
@@ -206,11 +194,7 @@ namespace Unity.Physics.Systems
                             }
                             if (!bothKinematic)
                             {
-                                m_Contacts.Add(new Contact { A = i, B = j, Normal = normal, Depth = depth });
-                                if (step.SpeculativeMargin > 0f)
-                                {
-                                    m_Speculative.Add(new SpeculativeContact { A = i, B = j, Normal = normal, Distance = -depth, RaisesEvents = false });
-                                }
+                                m_Contacts.Add(new Contact { A = i, B = j, Normal = normal, Distance = -depth, RaisesEvents = false });
                             }
                         }
                     }
@@ -229,49 +213,46 @@ namespace Unity.Physics.Systems
                 for (int c = 0; c < m_Contacts.Length; c++)
                 {
                     var contact = m_Contacts[c];
+                    if (contact.Distance >= 0f) continue;
                     float invA = kinematics[contact.A] != 0 ? 0f : invMasses[contact.A];
                     float invB = kinematics[contact.B] != 0 ? 0f : invMasses[contact.B];
                     float sum = invA + invB;
                     if (sum <= 0f) continue;
                     bool staticPair = kinematics[contact.A] != 0 || kinematics[contact.B] != 0;
                     float cap = staticPair ? float.MaxValue : step.MaxDynamicDepenetrationVelocity * dt;
-                    float correction = math.min(contact.Depth, cap);
+                    float correction = math.min(-contact.Distance, cap);
                     m_Positions[contact.A] += contact.Normal * (correction * invA / sum);
                     m_Positions[contact.B] -= contact.Normal * (correction * invB / sum);
                 }
             }
 
-            bool hasSpeculative = m_Speculative.Length > 0;
             var linearVelocities = dynamicsWorld.LinearVelocities;
-            if (hasSpeculative)
+            for (int c = 0; c < m_Contacts.Length; c++)
             {
-                for (int c = 0; c < m_Speculative.Length; c++)
+                var contact = m_Contacts[c];
+                float invA = kinematics[contact.A] != 0 ? 0f : invMasses[contact.A];
+                float invB = kinematics[contact.B] != 0 ? 0f : invMasses[contact.B];
+                float sum = invA + invB;
+                if (sum <= 0f) continue;
+                float gapRate = math.dot(linearVelocities[contact.A] - linearVelocities[contact.B], contact.Normal);
+                float endGap = contact.Distance + gapRate * dt;
+                if (endGap >= 0f) continue;
+                float impulse = -endGap / (dt * sum);
+                if (impulse * sum > step.MaxDynamicDepenetrationVelocity) impulse = step.MaxDynamicDepenetrationVelocity / sum;
+                linearVelocities[contact.A] += contact.Normal * (impulse * invA);
+                linearVelocities[contact.B] -= contact.Normal * (impulse * invB);
+                if (contact.RaisesEvents)
                 {
-                    var contact = m_Speculative[c];
-                    float invA = kinematics[contact.A] != 0 ? 0f : invMasses[contact.A];
-                    float invB = kinematics[contact.B] != 0 ? 0f : invMasses[contact.B];
-                    float sum = invA + invB;
-                    if (sum <= 0f) continue;
-                    float gapRate = math.dot(linearVelocities[contact.A] - linearVelocities[contact.B], contact.Normal);
-                    float endGap = contact.Distance + gapRate * dt;
-                    if (endGap >= 0f) continue;
-                    float impulse = -endGap / (dt * sum);
-                    if (impulse * sum > step.MaxDynamicDepenetrationVelocity) impulse = step.MaxDynamicDepenetrationVelocity / sum;
-                    linearVelocities[contact.A] += contact.Normal * (impulse * invA);
-                    linearVelocities[contact.B] -= contact.Normal * (impulse * invB);
-                    if (contact.RaisesEvents)
+                    int indexA = contact.B >= numDynamic ? contact.B : contact.A;
+                    int indexB = contact.B >= numDynamic ? contact.A : contact.B;
+                    simulation.CollisionEvents.Add(new CollisionEventData
                     {
-                        int indexA = contact.B >= numDynamic ? contact.B : contact.A;
-                        int indexB = contact.B >= numDynamic ? contact.A : contact.B;
-                        simulation.CollisionEvents.Add(new CollisionEventData
-                        {
-                            EntityA = bodies[indexA].Entity,
-                            EntityB = bodies[indexB].Entity,
-                            BodyIndexA = indexA,
-                            BodyIndexB = indexB,
-                            Normal = contact.Normal
-                        });
-                    }
+                        EntityA = bodies[indexA].Entity,
+                        EntityB = bodies[indexB].Entity,
+                        BodyIndexA = indexA,
+                        BodyIndexB = indexB,
+                        Normal = contact.Normal
+                    });
                 }
             }
 
@@ -292,7 +273,7 @@ namespace Unity.Physics.Systems
                     int bi = bodyIndex++;
 
                     var v = velocities[i];
-                    if (hasSpeculative) v.Linear = linearVelocities[bi];
+                    v.Linear = linearVelocities[bi];
 
                     var tr = transforms[i];
                     float3 position = hasContacts ? m_Positions[bi] : tr.Position;

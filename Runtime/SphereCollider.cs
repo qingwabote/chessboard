@@ -12,8 +12,6 @@ namespace Unity.Physics
 
         public bool Equals(SphereGeometry other) => Center.Equals(other.Center) && Radius.Equals(other.Radius);
 
-        public override bool Equals(object obj) => obj is SphereGeometry other && Equals(other);
-
         public override int GetHashCode() => Center.GetHashCode() * 397 ^ Radius.GetHashCode();
     }
 

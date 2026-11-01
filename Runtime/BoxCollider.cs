@@ -28,8 +28,6 @@ namespace Unity.Physics
                 && BevelRadius.Equals(other.BevelRadius);
         }
 
-        public override bool Equals(object obj) => obj is BoxGeometry other && Equals(other);
-
         public override int GetHashCode()
         {
             unchecked

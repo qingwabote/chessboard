@@ -30,8 +30,6 @@ namespace Unity.Physics
             return BelongsTo == other.BelongsTo && CollidesWith == other.CollidesWith && GroupIndex == other.GroupIndex;
         }
 
-        public override bool Equals(object obj) => obj is CollisionFilter other && Equals(other);
-
         public override int GetHashCode()
         {
             unchecked
@@ -141,8 +139,6 @@ namespace Unity.Physics
                 && Friction == other.Friction
                 && Restitution == other.Restitution;
         }
-
-        public override bool Equals(object obj) => obj is Material other && Equals(other);
 
         public override int GetHashCode()
         {
