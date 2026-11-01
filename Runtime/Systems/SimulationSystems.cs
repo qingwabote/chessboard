@@ -24,7 +24,6 @@ namespace Unity.Physics.Systems
         int m_Epoch;
         NativeList<CollisionTests.Leaf> m_LeavesA;
         NativeList<CollisionTests.Leaf> m_LeavesB;
-        NativeList<float3> m_Positions;
         NativeList<TriggerEventData> m_TriggerEvents;
         NativeList<CollisionEventData> m_CollisionEvents;
 
@@ -37,7 +36,6 @@ namespace Unity.Physics.Systems
             m_Epoch = 0;
             m_LeavesA = new NativeList<CollisionTests.Leaf>(4, persistent);
             m_LeavesB = new NativeList<CollisionTests.Leaf>(4, persistent);
-            m_Positions = new NativeList<float3>(256, persistent);
             m_TriggerEvents = new NativeList<TriggerEventData>(64, persistent);
             m_CollisionEvents = new NativeList<CollisionEventData>(64, persistent);
 
@@ -57,7 +55,6 @@ namespace Unity.Physics.Systems
             if (m_Seen.IsCreated) m_Seen.Dispose();
             if (m_LeavesA.IsCreated) m_LeavesA.Dispose();
             if (m_LeavesB.IsCreated) m_LeavesB.Dispose();
-            if (m_Positions.IsCreated) m_Positions.Dispose();
             if (m_TriggerEvents.IsCreated) m_TriggerEvents.Dispose();
             if (m_CollisionEvents.IsCreated) m_CollisionEvents.Dispose();
         }
@@ -202,30 +199,6 @@ namespace Unity.Physics.Systems
             }
 
             var invMasses = dynamicsWorld.InvMasses;
-            bool hasContacts = m_Contacts.Length > 0;
-            m_Positions.Clear();
-            if (hasContacts)
-            {
-                for (int b = 0; b < numBodies; b++)
-                {
-                    m_Positions.Add(bodies[b].WorldFromBody.pos);
-                }
-                for (int c = 0; c < m_Contacts.Length; c++)
-                {
-                    var contact = m_Contacts[c];
-                    if (contact.Distance >= 0f) continue;
-                    float invA = kinematics[contact.A] != 0 ? 0f : invMasses[contact.A];
-                    float invB = kinematics[contact.B] != 0 ? 0f : invMasses[contact.B];
-                    float sum = invA + invB;
-                    if (sum <= 0f) continue;
-                    bool staticPair = kinematics[contact.A] != 0 || kinematics[contact.B] != 0;
-                    float cap = staticPair ? float.MaxValue : step.MaxDynamicDepenetrationVelocity * dt;
-                    float correction = math.min(-contact.Distance, cap);
-                    m_Positions[contact.A] += contact.Normal * (correction * invA / sum);
-                    m_Positions[contact.B] -= contact.Normal * (correction * invB / sum);
-                }
-            }
-
             var linearVelocities = dynamicsWorld.LinearVelocities;
             for (int c = 0; c < m_Contacts.Length; c++)
             {
@@ -237,8 +210,10 @@ namespace Unity.Physics.Systems
                 float gapRate = math.dot(linearVelocities[contact.A] - linearVelocities[contact.B], contact.Normal);
                 float endGap = contact.Distance + gapRate * dt;
                 if (endGap >= 0f) continue;
-                float impulse = -endGap / (dt * sum);
-                if (impulse * sum > step.MaxDynamicDepenetrationVelocity) impulse = step.MaxDynamicDepenetrationVelocity / sum;
+                bool staticPair = kinematics[contact.A] != 0 || kinematics[contact.B] != 0;
+                float maxDepenetrationVelocity = staticPair ? float.MaxValue : step.MaxDynamicDepenetrationVelocity;
+                float impulse = math.min(-endGap / (dt * sum), (maxDepenetrationVelocity - gapRate) / sum);
+                if (impulse <= 0f) continue;
                 linearVelocities[contact.A] += contact.Normal * (impulse * invA);
                 linearVelocities[contact.B] -= contact.Normal * (impulse * invB);
                 if (contact.RaisesEvents)
@@ -276,7 +251,7 @@ namespace Unity.Physics.Systems
                     v.Linear = linearVelocities[bi];
 
                     var tr = transforms[i];
-                    float3 position = hasContacts ? m_Positions[bi] : tr.Position;
+                    float3 position = tr.Position;
                     position += v.Linear * dt;
 
                     var rotation = tr.Rotation;
