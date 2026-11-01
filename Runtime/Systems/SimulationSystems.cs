@@ -66,6 +66,7 @@ namespace Unity.Physics.Systems
             var step = SystemAPI.TryGetSingleton(out PhysicsStep physicsStep) ? physicsStep : PhysicsStep.Default;
             step.MaxDynamicDepenetrationVelocity = step.MaxDynamicDepenetrationVelocity <= 0f ? PhysicsStep.DefaultMaxDynamicDepenetrationVelocity : step.MaxDynamicDepenetrationVelocity;
             step.MaxStaticDepenetrationVelocity = step.MaxStaticDepenetrationVelocity <= 0f ? PhysicsStep.DefaultMaxStaticDepenetrationVelocity : step.MaxStaticDepenetrationVelocity;
+            step.SolverIterationCount = step.SolverIterationCount <= 0 ? PhysicsStep.DefaultSolverIterationCount : step.SolverIterationCount;
             m_TriggerEvents.Clear();
             m_CollisionEvents.Clear();
 
@@ -203,34 +204,39 @@ namespace Unity.Physics.Systems
             }
 
             var invMasses = dynamicsWorld.InvMasses;
-            for (int c = 0; c < m_Contacts.Length; c++)
+            for (int iteration = 0; iteration < step.SolverIterationCount; iteration++)
             {
-                var contact = m_Contacts[c];
-                float invA = kinematics[contact.A] != 0 ? 0f : invMasses[contact.A];
-                float invB = kinematics[contact.B] != 0 ? 0f : invMasses[contact.B];
-                float sum = invA + invB;
-                if (sum <= 0f) continue;
-                float gapRate = math.dot(linearVelocities[contact.A] - linearVelocities[contact.B], contact.Normal);
-                float endGap = contact.Distance + gapRate * dt;
-                if (endGap >= 0f) continue;
-                bool staticPair = kinematics[contact.A] != 0 || kinematics[contact.B] != 0;
-                float maxDepenetrationVelocity = staticPair ? step.MaxStaticDepenetrationVelocity : step.MaxDynamicDepenetrationVelocity;
-                float impulse = math.min(-endGap / (dt * sum), (maxDepenetrationVelocity - gapRate) / sum);
-                if (impulse <= 0f) continue;
-                linearVelocities[contact.A] += contact.Normal * (impulse * invA);
-                linearVelocities[contact.B] -= contact.Normal * (impulse * invB);
-                if (contact.RaisesEvents)
+                for (int c = 0; c < m_Contacts.Length; c++)
                 {
-                    int indexA = contact.B >= numDynamic ? contact.B : contact.A;
-                    int indexB = contact.B >= numDynamic ? contact.A : contact.B;
-                    simulation.CollisionEvents.Add(new CollisionEventData
+                    var contact = m_Contacts[c];
+                    float invA = kinematics[contact.A] != 0 ? 0f : invMasses[contact.A];
+                    float invB = kinematics[contact.B] != 0 ? 0f : invMasses[contact.B];
+                    float sum = invA + invB;
+                    if (sum <= 0f) continue;
+                    float gapRate = math.dot(linearVelocities[contact.A] - linearVelocities[contact.B], contact.Normal);
+                    float endGap = contact.Distance + gapRate * dt;
+                    if (endGap >= 0f) continue;
+                    bool staticPair = kinematics[contact.A] != 0 || kinematics[contact.B] != 0;
+                    float maxDepenetrationVelocity = staticPair ? step.MaxStaticDepenetrationVelocity : step.MaxDynamicDepenetrationVelocity;
+                    float impulse = math.min(-endGap / (dt * sum), (maxDepenetrationVelocity - gapRate) / sum);
+                    if (impulse <= 0f) continue;
+                    linearVelocities[contact.A] += contact.Normal * (impulse * invA);
+                    linearVelocities[contact.B] -= contact.Normal * (impulse * invB);
+                    if (contact.RaisesEvents)
                     {
-                        EntityA = bodies[indexA].Entity,
-                        EntityB = bodies[indexB].Entity,
-                        BodyIndexA = indexA,
-                        BodyIndexB = indexB,
-                        Normal = contact.Normal
-                    });
+                        int indexA = contact.B >= numDynamic ? contact.B : contact.A;
+                        int indexB = contact.B >= numDynamic ? contact.A : contact.B;
+                        simulation.CollisionEvents.Add(new CollisionEventData
+                        {
+                            EntityA = bodies[indexA].Entity,
+                            EntityB = bodies[indexB].Entity,
+                            BodyIndexA = indexA,
+                            BodyIndexB = indexB,
+                            Normal = contact.Normal
+                        });
+                        contact.RaisesEvents = false;
+                        m_Contacts[c] = contact;
+                    }
                 }
             }
 
