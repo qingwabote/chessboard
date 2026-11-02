@@ -125,14 +125,14 @@ namespace Unity.Physics.Systems
 
             var bodies = collisionWorld.Bodies;
             var kinematics = dynamicsWorld.Kinematics;
-            var linearVelocities = dynamicsWorld.LinearVelocities;
+            var motionVelocities = dynamicsWorld.MotionVelocities;
             m_Contacts.Clear();
             for (int p = 0; p < m_Pairs.Length; p++)
             {
                 int i = m_Pairs[p].x;
                 int j = m_Pairs[p].y;
                 bool bothKinematic = kinematics[i] != 0 && kinematics[j] != 0;
-                float band = math.length(linearVelocities[i] - linearVelocities[j]) * dt + step.CollisionTolerance;
+                float band = math.length(motionVelocities[i].LinearVelocity - motionVelocities[j].LinearVelocity) * dt + step.CollisionTolerance;
 
                 m_LeavesA.Clear();
                 m_LeavesB.Clear();
@@ -213,15 +213,19 @@ namespace Unity.Physics.Systems
                     float invB = kinematics[contact.B] != 0 ? 0f : invMasses[contact.B];
                     float sum = invA + invB;
                     if (sum <= 0f) continue;
-                    float gapRate = math.dot(linearVelocities[contact.A] - linearVelocities[contact.B], contact.Normal);
+                    float gapRate = math.dot(motionVelocities[contact.A].LinearVelocity - motionVelocities[contact.B].LinearVelocity, contact.Normal);
                     float endGap = contact.Distance + gapRate * dt;
                     if (endGap >= 0f) continue;
                     bool staticPair = kinematics[contact.A] != 0 || kinematics[contact.B] != 0;
                     float maxDepenetrationVelocity = staticPair ? step.MaxStaticDepenetrationVelocity : step.MaxDynamicDepenetrationVelocity;
                     float impulse = math.min(-endGap / (dt * sum), (maxDepenetrationVelocity - gapRate) / sum);
                     if (impulse <= 0f) continue;
-                    linearVelocities[contact.A] += contact.Normal * (impulse * invA);
-                    linearVelocities[contact.B] -= contact.Normal * (impulse * invB);
+                    var velocityA = motionVelocities[contact.A];
+                    velocityA.LinearVelocity += contact.Normal * (impulse * invA);
+                    motionVelocities[contact.A] = velocityA;
+                    var velocityB = motionVelocities[contact.B];
+                    velocityB.LinearVelocity -= contact.Normal * (impulse * invB);
+                    motionVelocities[contact.B] = velocityB;
                     if (contact.RaisesEvents)
                     {
                         int indexA = contact.B >= numDynamic ? contact.B : contact.A;
@@ -257,7 +261,7 @@ namespace Unity.Physics.Systems
                     int bi = bodyIndex++;
 
                     var v = velocities[i];
-                    v.Linear = linearVelocities[bi];
+                    v.Linear = motionVelocities[bi].LinearVelocity;
 
                     var tr = transforms[i];
                     float3 position = tr.Position;

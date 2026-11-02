@@ -20,7 +20,7 @@ namespace Unity.Physics.Systems
         NativeArray<int> m_BodyIndices;
         NativeArray<byte> m_Kinematics;
         NativeArray<float> m_InvMasses;
-        NativeArray<float3> m_LinearVelocities;
+        NativeArray<MotionVelocity> m_MotionVelocities;
         NativeArray<float> m_DampingLinear;
         NativeArray<float> m_DampingAngular;
 
@@ -35,7 +35,7 @@ namespace Unity.Physics.Systems
             m_BodyIndices = new NativeArray<int>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_Kinematics = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_InvMasses = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
-            m_LinearVelocities = new NativeArray<float3>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_MotionVelocities = new NativeArray<MotionVelocity>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_DampingLinear = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_DampingAngular = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
 
@@ -49,7 +49,7 @@ namespace Unity.Physics.Systems
                         m_Bodies, m_Eabbs, m_Filters, m_MaterialFlags, m_CellBodyIndices, m_BodyIndices,
                         0, default, k_CellSize),
                     DynamicsWorld = new DynamicsWorld(
-                        m_Kinematics, m_InvMasses, m_LinearVelocities, m_DampingLinear, m_DampingAngular)
+                        m_Kinematics, m_InvMasses, m_MotionVelocities, m_DampingLinear, m_DampingAngular)
                 }
             });
         }
@@ -84,7 +84,7 @@ namespace Unity.Physics.Systems
             var flags = Grow(ref m_MaterialFlags, bodyCount);
             var kinematics = Grow(ref m_Kinematics, bodyCount);
             var invMasses = Grow(ref m_InvMasses, bodyCount);
-            var linearVelocities = Grow(ref m_LinearVelocities, bodyCount);
+            var motionVelocities = Grow(ref m_MotionVelocities, bodyCount);
             var dampingLinear = Grow(ref m_DampingLinear, bodyCount);
             var dampingAngular = Grow(ref m_DampingAngular, bodyCount);
 
@@ -182,7 +182,7 @@ namespace Unity.Physics.Systems
                         flags[bodyIndex] = (byte)blob->m_Header.Material.Flags;
                         kinematics[bodyIndex] = mass.IsKinematic ? (byte)1 : (byte)0;
                         invMasses[bodyIndex] = mass.InverseMass;
-                        linearVelocities[bodyIndex] = velocities[i].Linear;
+                        motionVelocities[bodyIndex] = new MotionVelocity { LinearVelocity = velocities[i].Linear };
                         if (hasDamping)
                         {
                             dampingLinear[bodyIndex] = dampings[i].Linear;
@@ -252,7 +252,7 @@ namespace Unity.Physics.Systems
                         flags[bodyIndex] = (byte)blob->m_Header.Material.Flags;
                         kinematics[bodyIndex] = 1;
                         invMasses[bodyIndex] = 0f;
-                        linearVelocities[bodyIndex] = float3.zero;
+                        motionVelocities[bodyIndex] = default;
                         dampingLinear[bodyIndex] = 0f;
                         dampingAngular[bodyIndex] = 0f;
                         Occupy(aabb);
@@ -292,7 +292,7 @@ namespace Unity.Physics.Systems
                 numDynamicBodies, grid, k_CellSize);
             physicsWorld.DynamicsWorld = new DynamicsWorld(
                 kinematics.GetSubArray(0, bodyIndex), invMasses.GetSubArray(0, bodyIndex),
-                linearVelocities.GetSubArray(0, bodyIndex), dampingLinear.GetSubArray(0, bodyIndex),
+                motionVelocities.GetSubArray(0, bodyIndex), dampingLinear.GetSubArray(0, bodyIndex),
                 dampingAngular.GetSubArray(0, bodyIndex));
         }
 
@@ -306,7 +306,7 @@ namespace Unity.Physics.Systems
             if (m_BodyIndices.IsCreated) m_BodyIndices.Dispose();
             if (m_Kinematics.IsCreated) m_Kinematics.Dispose();
             if (m_InvMasses.IsCreated) m_InvMasses.Dispose();
-            if (m_LinearVelocities.IsCreated) m_LinearVelocities.Dispose();
+            if (m_MotionVelocities.IsCreated) m_MotionVelocities.Dispose();
             if (m_DampingLinear.IsCreated) m_DampingLinear.Dispose();
             if (m_DampingAngular.IsCreated) m_DampingAngular.Dispose();
         }

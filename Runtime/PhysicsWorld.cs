@@ -58,10 +58,9 @@ namespace Unity.Physics
                 return false;
             }
             int hitsBefore = allHits.Length;
-            Aabb2 aabb = input.Aabb;
-            var cells = CellRange(aabb);
             int gridWidth = Grid.Max.x - Grid.Min.x + 1;
-            foreach (int2 xy in cells)
+            Aabb2 aabb = input.Aabb;
+            foreach (int2 xy in CellRange(aabb))
             {
                 int cellIndex = (xy.x - Grid.Min.x) + (xy.y - Grid.Min.y) * gridWidth;
                 for (int k = m_CellBodyIndices[cellIndex]; k < m_CellBodyIndices[cellIndex + 1]; k++)
@@ -287,24 +286,24 @@ namespace Unity.Physics
     {
         internal ReadOnlySpan<byte> Kinematics => m_Kinematics.AsSpan();
         internal ReadOnlySpan<float> InvMasses => m_InvMasses.AsSpan();
-        internal Span<float3> LinearVelocities => m_LinearVelocities.AsSpan();
+        public NativeArray<MotionVelocity> MotionVelocities => m_MotionVelocities;
         internal ReadOnlySpan<float> DampingLinear => m_DampingLinear.AsSpan();
         internal ReadOnlySpan<float> DampingAngular => m_DampingAngular.AsSpan();
 
         private NativeArray<byte> m_Kinematics;
         private NativeArray<float> m_InvMasses;
-        private NativeArray<float3> m_LinearVelocities;
+        private NativeArray<MotionVelocity> m_MotionVelocities;
         private NativeArray<float> m_DampingLinear;
         private NativeArray<float> m_DampingAngular;
 
         internal DynamicsWorld(
             NativeArray<byte> kinematics, NativeArray<float> invMasses,
-            NativeArray<float3> linearVelocities, NativeArray<float> dampingLinear,
+            NativeArray<MotionVelocity> motionVelocities, NativeArray<float> dampingLinear,
             NativeArray<float> dampingAngular)
         {
             m_Kinematics = kinematics;
             m_InvMasses = invMasses;
-            m_LinearVelocities = linearVelocities;
+            m_MotionVelocities = motionVelocities;
             m_DampingLinear = dampingLinear;
             m_DampingAngular = dampingAngular;
         }
@@ -322,6 +321,8 @@ namespace Unity.Physics
         public NativeArray<RigidBody> Bodies => CollisionWorld.Bodies;
         public NativeArray<RigidBody> DynamicBodies => CollisionWorld.DynamicBodies;
         public NativeArray<RigidBody> StaticBodies => CollisionWorld.StaticBodies;
+
+        public NativeArray<MotionVelocity> MotionVelocities => DynamicsWorld.MotionVelocities;
 
         public bool OverlapAabb(OverlapAabbInput input, ref NativeList<int> allHits) =>
             CollisionWorld.OverlapAabb(input, ref allHits);
@@ -348,6 +349,8 @@ namespace Unity.Physics
         public NativeArray<RigidBody> Bodies => PhysicsWorld.Bodies;
         public NativeArray<RigidBody> StaticBodies => PhysicsWorld.StaticBodies;
         public NativeArray<RigidBody> DynamicBodies => PhysicsWorld.DynamicBodies;
+
+        public NativeArray<MotionVelocity> MotionVelocities => PhysicsWorld.MotionVelocities;
 
         public bool OverlapAabb(OverlapAabbInput input, ref NativeList<int> allHits) =>
             PhysicsWorld.OverlapAabb(input, ref allHits);
