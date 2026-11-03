@@ -18,6 +18,8 @@ namespace Unity.Physics.Systems
         NativeArray<byte> m_MaterialFlags;
         NativeArray<int> m_CellBodyIndices;
         NativeArray<int> m_BodyIndices;
+        NativeArray<int> m_BodyEpochs;
+        NativeReference<int> m_QueryEpoch;
         NativeArray<byte> m_Kinematics;
         NativeArray<float> m_InvMasses;
         NativeArray<MotionVelocity> m_MotionVelocities;
@@ -33,6 +35,8 @@ namespace Unity.Physics.Systems
             m_MaterialFlags = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_CellBodyIndices = new NativeArray<int>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_BodyIndices = new NativeArray<int>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_BodyEpochs = new NativeArray<int>(0, persistent, NativeArrayOptions.UninitializedMemory);
+            m_QueryEpoch = new NativeReference<int>(0, persistent);
             m_Kinematics = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_InvMasses = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_MotionVelocities = new NativeArray<MotionVelocity>(0, persistent, NativeArrayOptions.UninitializedMemory);
@@ -47,6 +51,7 @@ namespace Unity.Physics.Systems
                 {
                     CollisionWorld = new CollisionWorld(
                         m_Bodies, m_Eabbs, m_Filters, m_MaterialFlags, m_CellBodyIndices, m_BodyIndices,
+                        m_BodyEpochs, m_QueryEpoch,
                         0, default, k_CellSize),
                     DynamicsWorld = new DynamicsWorld(
                         m_Kinematics, m_InvMasses, m_MotionVelocities, m_DampingLinear, m_DampingAngular)
@@ -87,6 +92,12 @@ namespace Unity.Physics.Systems
             var motionVelocities = Grow(ref m_MotionVelocities, bodyCount);
             var dampingLinear = Grow(ref m_DampingLinear, bodyCount);
             var dampingAngular = Grow(ref m_DampingAngular, bodyCount);
+            if (m_BodyEpochs.Length < bodyCount)
+            {
+                m_BodyEpochs.Dispose();
+                m_BodyEpochs = new NativeArray<int>(bodyCount, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            }
+            var bodyEpochs = m_BodyEpochs;
 
             int bodyIndex = 0;
             int numDynamicBodies = 0;
@@ -289,6 +300,7 @@ namespace Unity.Physics.Systems
                 bodies.GetSubArray(0, bodyIndex), eabbs.GetSubArray(0, bodyIndex),
                 filters.GetSubArray(0, bodyIndex), flags.GetSubArray(0, bodyIndex),
                 m_CellBodyIndices.GetSubArray(0, cellTotal + 1), bodyIndices.GetSubArray(0, cellBodyIndex),
+                bodyEpochs.GetSubArray(0, bodyIndex), m_QueryEpoch,
                 numDynamicBodies, grid, k_CellSize);
             physicsWorld.DynamicsWorld = new DynamicsWorld(
                 kinematics.GetSubArray(0, bodyIndex), invMasses.GetSubArray(0, bodyIndex),
@@ -304,6 +316,8 @@ namespace Unity.Physics.Systems
             if (m_MaterialFlags.IsCreated) m_MaterialFlags.Dispose();
             if (m_CellBodyIndices.IsCreated) m_CellBodyIndices.Dispose();
             if (m_BodyIndices.IsCreated) m_BodyIndices.Dispose();
+            if (m_BodyEpochs.IsCreated) m_BodyEpochs.Dispose();
+            if (m_QueryEpoch.IsCreated) m_QueryEpoch.Dispose();
             if (m_Kinematics.IsCreated) m_Kinematics.Dispose();
             if (m_InvMasses.IsCreated) m_InvMasses.Dispose();
             if (m_MotionVelocities.IsCreated) m_MotionVelocities.Dispose();

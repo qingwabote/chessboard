@@ -20,8 +20,6 @@ namespace Unity.Physics.Systems
     {
         NativeList<int2> m_Pairs;
         NativeList<Contact> m_Contacts;
-        NativeArray<int> m_Seen;
-        int m_Epoch;
         NativeList<CollisionTests.Leaf> m_LeavesA;
         NativeList<CollisionTests.Leaf> m_LeavesB;
         NativeList<TriggerEventData> m_TriggerEvents;
@@ -32,8 +30,6 @@ namespace Unity.Physics.Systems
             var persistent = Allocator.Persistent;
             m_Pairs = new NativeList<int2>(256, persistent);
             m_Contacts = new NativeList<Contact>(128, persistent);
-            m_Seen = new NativeArray<int>(256, persistent, NativeArrayOptions.ClearMemory);
-            m_Epoch = 0;
             m_LeavesA = new NativeList<CollisionTests.Leaf>(4, persistent);
             m_LeavesB = new NativeList<CollisionTests.Leaf>(4, persistent);
             m_TriggerEvents = new NativeList<TriggerEventData>(64, persistent);
@@ -52,7 +48,6 @@ namespace Unity.Physics.Systems
         {
             if (m_Pairs.IsCreated) m_Pairs.Dispose();
             if (m_Contacts.IsCreated) m_Contacts.Dispose();
-            if (m_Seen.IsCreated) m_Seen.Dispose();
             if (m_LeavesA.IsCreated) m_LeavesA.Dispose();
             if (m_LeavesB.IsCreated) m_LeavesB.Dispose();
             if (m_TriggerEvents.IsCreated) m_TriggerEvents.Dispose();
@@ -83,43 +78,25 @@ namespace Unity.Physics.Systems
             var eabbs = collisionWorld.Eabbs;
             var filters = collisionWorld.Filters;
             var materialFlags = collisionWorld.MaterialFlags;
-            var cellBodyIndices = collisionWorld.CellBodyIndices;
-            var bodyIndices = collisionWorld.BodyIndices;
             float dt = SystemAPI.Time.DeltaTime;
             var simulation = SystemAPI.GetSingleton<SimulationSingleton>();
 
-            if (m_Seen.Length < numBodies)
-            {
-                m_Seen.Dispose();
-                m_Seen = new NativeArray<int>(math.max(256, math.ceilpow2(numBodies)), Allocator.Persistent, NativeArrayOptions.ClearMemory);
-                m_Epoch = 0;
-            }
-
             m_Pairs.Clear();
-            int gridWidth = collisionWorld.Grid.Max.x - collisionWorld.Grid.Min.x + 1;
             for (int i = 0; i < numDynamic; i++)
             {
-                m_Epoch++;
                 var filterI = filters[i];
                 var eabbI = eabbs[i];
-                foreach (int2 xy in collisionWorld.CellRange(eabbI))
+                foreach (int j in collisionWorld.BodyRange(eabbI))
                 {
-                    int cellIndex = (xy.x - collisionWorld.Grid.Min.x) + (xy.y - collisionWorld.Grid.Min.y) * gridWidth;
-                    for (int k = cellBodyIndices[cellIndex]; k < cellBodyIndices[cellIndex + 1]; k++)
-                    {
-                        int j = bodyIndices[k];
-                        if (j == i) continue;
-                        if (j < numDynamic && j < i) continue;
-                        if (m_Seen[j] == m_Epoch) continue;
-                        var filterJ = filters[j];
-                        if ((filterI.CollidesWith & filterJ.BelongsTo) == 0) continue;
-                        if ((filterJ.CollidesWith & filterI.BelongsTo) == 0) continue;
-                        m_Seen[j] = m_Epoch;
-                        var eabbJ = eabbs[j];
-                        if (math.any(eabbI.Max < eabbJ.Min) || math.any(eabbI.Min > eabbJ.Max)) continue;
-                        if (((MaterialFlags)(materialFlags[i] | materialFlags[j]) & MaterialFlags.DisableCollisions) != 0) continue;
-                        m_Pairs.Add(new int2(i, j));
-                    }
+                    if (j == i) continue;
+                    if (j < numDynamic && j < i) continue;
+                    var filterJ = filters[j];
+                    if ((filterI.CollidesWith & filterJ.BelongsTo) == 0) continue;
+                    if ((filterJ.CollidesWith & filterI.BelongsTo) == 0) continue;
+                    var eabbJ = eabbs[j];
+                    if (math.any(eabbI.Max < eabbJ.Min) || math.any(eabbI.Min > eabbJ.Max)) continue;
+                    if (((MaterialFlags)(materialFlags[i] | materialFlags[j]) & MaterialFlags.DisableCollisions) != 0) continue;
+                    m_Pairs.Add(new int2(i, j));
                 }
             }
 

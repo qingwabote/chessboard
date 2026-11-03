@@ -19,8 +19,6 @@ namespace Unity.Physics
         internal ReadOnlySpan<Aabb2> Eabbs => m_Eabbs.AsSpan();
         internal ReadOnlySpan<CollisionFilter> Filters => m_Filters.AsSpan();
         internal ReadOnlySpan<byte> MaterialFlags => m_MaterialFlags.AsSpan();
-        internal ReadOnlySpan<int> CellBodyIndices => m_CellBodyIndices.AsSpan();
-        internal ReadOnlySpan<int> BodyIndices => m_BodyIndices.AsSpan();
 
         private NativeArray<RigidBody> m_Bodies;
         private NativeArray<int> m_BodyIndices;
@@ -29,6 +27,8 @@ namespace Unity.Physics
         private NativeArray<Aabb2> m_Eabbs;
         private NativeArray<CollisionFilter> m_Filters;
         private NativeArray<byte> m_MaterialFlags;
+        private NativeArray<int> m_BodyEpochs;
+        private NativeReference<int> m_QueryEpoch;
 
         internal readonly Range2 Grid;
         public readonly float CellSize;
@@ -38,6 +38,7 @@ namespace Unity.Physics
             NativeArray<RigidBody> bodies, NativeArray<Aabb2> eabbs,
             NativeArray<CollisionFilter> filters, NativeArray<byte> materialFlags,
             NativeArray<int> cellBodyIndices, NativeArray<int> bodyIndices,
+            NativeArray<int> bodyEpochs, NativeReference<int> queryEpoch,
             int numDynamicBodies, Range2 grid, float cellSize)
         {
             m_Bodies = bodies;
@@ -46,6 +47,8 @@ namespace Unity.Physics
             m_MaterialFlags = materialFlags;
             m_CellBodyIndices = cellBodyIndices;
             m_BodyIndices = bodyIndices;
+            m_BodyEpochs = bodyEpochs;
+            m_QueryEpoch = queryEpoch;
             NumDynamicBodies = numDynamicBodies;
             Grid = grid;
             CellSize = cellSize;
@@ -53,35 +56,27 @@ namespace Unity.Physics
 
         public bool OverlapAabb(OverlapAabbInput input, ref NativeList<int> allHits)
         {
-            if (m_CellBodyIndices.Length == 0 || CellSize <= 0f || input.Filter.IsEmpty)
+            if (input.Filter.IsEmpty)
             {
                 return false;
             }
             int hitsBefore = allHits.Length;
-            int gridWidth = Grid.Max.x - Grid.Min.x + 1;
             Aabb2 aabb = input.Aabb;
-            foreach (int2 xy in CellRange(aabb))
+            foreach (int bodyIndex in BodyRange(aabb))
             {
-                int cellIndex = (xy.x - Grid.Min.x) + (xy.y - Grid.Min.y) * gridWidth;
-                for (int k = m_CellBodyIndices[cellIndex]; k < m_CellBodyIndices[cellIndex + 1]; k++)
-                {
-                    int bodyIndex = m_BodyIndices[k];
-                    if (!m_Eabbs[bodyIndex].Overlaps(aabb)) continue;
-                    if (!CollisionFilter.IsCollisionEnabled(input.Filter, m_Filters[bodyIndex])) continue;
-                    bool duplicate = false;
-                    for (int d = hitsBefore; d < allHits.Length; d++)
-                    {
-                        if (allHits[d] == bodyIndex) { duplicate = true; break; }
-                    }
-                    if (!duplicate) allHits.Add(bodyIndex);
-                }
+                if (!m_Eabbs[bodyIndex].Overlaps(aabb)) continue;
+                if (!CollisionFilter.IsCollisionEnabled(input.Filter, m_Filters[bodyIndex])) continue;
+                allHits.Add(bodyIndex);
             }
             return allHits.Length > hitsBefore;
         }
 
-        internal Range2 CellRange(Aabb2 aabb)
+        internal BodyRange BodyRange(Aabb2 aabb)
         {
-            return math.clamp((int4)math.floor(aabb.Val / CellSize), Grid.Min.xyxy, Grid.Max.xyxy);
+            return new BodyRange(
+                m_CellBodyIndices, m_BodyIndices, m_BodyEpochs,
+                ++m_QueryEpoch.Value, math.clamp((int4)math.floor(aabb.Val / CellSize), Grid.Min.xyxy, Grid.Max.xyxy),
+                Grid.Min, Grid.Max.x - Grid.Min.x + 1);
         }
 
         public bool OverlapSphere(
@@ -93,16 +88,13 @@ namespace Unity.Physics
                 return false;
             }
             int hitsBefore = outHits.Length;
-            var candidates = new NativeList<int>(16, Allocator.Temp);
-            GatherCandidates(new Aabb2 { Min = position.xz - radius, Max = position.xz + radius }, ref candidates);
-            for (int i = 0; i < candidates.Length; i++)
+            foreach (int bodyIndex in BodyRange(new Aabb2 { Min = position.xz - radius, Max = position.xz + radius }))
             {
-                if (TryDistance(candidates[i], position, filter, out var hit) && hit.Fraction <= radius)
+                if (TryDistance(bodyIndex, position, filter, out var hit) && hit.Fraction <= radius)
                 {
                     outHits.Add(hit);
                 }
             }
-            candidates.Dispose();
             return outHits.Length > hitsBefore;
         }
 
@@ -116,11 +108,8 @@ namespace Unity.Physics
             float scale = input.QueryColliderScale > 0f ? input.QueryColliderScale : 1f;
             var startAabb = Collider.CalculateAabb(input.Collider, new RigidTransform(input.Orientation, input.Start), scale);
             var endAabb = Collider.CalculateAabb(input.Collider, new RigidTransform(input.Orientation, input.End), scale);
-            var candidates = new NativeList<int>(16, Allocator.Temp);
-            GatherCandidates(Aabb2.Union(startAabb, endAabb), ref candidates);
-            for (int i = 0; i < candidates.Length; i++)
+            foreach (int bodyIndex in BodyRange(Aabb2.Union(startAabb, endAabb)))
             {
-                int bodyIndex = candidates[i];
                 var body = m_Bodies[bodyIndex];
                 var bodyFilter = ((Collider*)body.Collider.GetUnsafePtr())->GetCollisionFilter();
                 if (!CollisionFilter.IsCollisionEnabled(bodyFilter, input.Collider->GetCollisionFilter())) continue;
@@ -129,32 +118,7 @@ namespace Unity.Physics
                     allHits.Add(hit);
                 }
             }
-            candidates.Dispose();
             return allHits.Length > hitsBefore;
-        }
-
-        internal void GatherCandidates(Aabb2 aabb, ref NativeList<int> results)
-        {
-            if (m_CellBodyIndices.Length == 0 || CellSize <= 0f)
-            {
-                return;
-            }
-            var cells = CellRange(aabb);
-            int gridWidth = Grid.Max.x - Grid.Min.x + 1;
-            foreach (int2 xy in cells)
-            {
-                int cellIndex = (xy.x - Grid.Min.x) + (xy.y - Grid.Min.y) * gridWidth;
-                for (int k = m_CellBodyIndices[cellIndex]; k < m_CellBodyIndices[cellIndex + 1]; k++)
-                {
-                    int bodyIndex = m_BodyIndices[k];
-                    bool duplicate = false;
-                    for (int d = 0; d < results.Length; d++)
-                    {
-                        if (results[d] == bodyIndex) { duplicate = true; break; }
-                    }
-                    if (!duplicate) results.Add(bodyIndex);
-                }
-            }
         }
 
         internal bool TryDistance(int bodyIndex, float3 position, CollisionFilter filter, out DistanceHit hit)
@@ -279,6 +243,59 @@ namespace Unity.Physics
             castLeaves.Dispose();
             bodyLeaves.Dispose();
             return false;
+        }
+    }
+
+    internal struct BodyRange
+    {
+        Range2.Enumerator m_Cells;
+        NativeArray<int> m_CellBodyIndices;
+        NativeArray<int> m_BodyIndices;
+        NativeArray<int> m_BodyEpochs;
+        readonly int m_Epoch;
+        readonly int2 m_GridMin;
+        readonly int m_GridWidth;
+        int m_Head;
+        int m_Tail;
+        int m_Current;
+
+        internal BodyRange(
+            NativeArray<int> cellBodyIndices, NativeArray<int> bodyIndices, NativeArray<int> bodyEpochs,
+            int epoch, Range2 cells, int2 gridMin, int gridWidth)
+        {
+            m_CellBodyIndices = cellBodyIndices;
+            m_BodyIndices = bodyIndices;
+            m_BodyEpochs = bodyEpochs;
+            m_Epoch = epoch;
+            m_GridMin = gridMin;
+            m_GridWidth = gridWidth;
+            m_Cells = cells.GetEnumerator();
+            m_Head = 0;
+            m_Tail = 0;
+            m_Current = 0;
+        }
+
+        public BodyRange GetEnumerator() => this;
+
+        public int Current => m_Current;
+
+        public bool MoveNext()
+        {
+            while (true)
+            {
+                if (m_Head < m_Tail)
+                {
+                    int bodyIndex = m_BodyIndices[m_Head++];
+                    if (m_BodyEpochs[bodyIndex] == m_Epoch) continue;
+                    m_BodyEpochs[bodyIndex] = m_Epoch;
+                    m_Current = bodyIndex;
+                    return true;
+                }
+                if (!m_Cells.MoveNext()) return false;
+                int cellIndex = (m_Cells.Current.x - m_GridMin.x) + (m_Cells.Current.y - m_GridMin.y) * m_GridWidth;
+                m_Head = m_CellBodyIndices[cellIndex];
+                m_Tail = m_CellBodyIndices[cellIndex + 1];
+            }
         }
     }
 
