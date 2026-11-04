@@ -20,6 +20,9 @@ namespace Unity.Physics.Systems
         NativeArray<int> m_BodyIndices;
         NativeArray<int> m_BodyEpochs;
         NativeReference<int> m_QueryEpoch;
+#if UNITY_EDITOR
+        NativeReference<bool> m_BodyVisiting;
+#endif
         NativeArray<byte> m_Kinematics;
         NativeArray<float> m_InvMasses;
         NativeArray<MotionVelocity> m_MotionVelocities;
@@ -37,6 +40,9 @@ namespace Unity.Physics.Systems
             m_BodyIndices = new NativeArray<int>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_BodyEpochs = new NativeArray<int>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_QueryEpoch = new NativeReference<int>(0, persistent);
+#if UNITY_EDITOR
+            m_BodyVisiting = new NativeReference<bool>(false, persistent);
+#endif
             m_Kinematics = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_InvMasses = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_MotionVelocities = new NativeArray<MotionVelocity>(0, persistent, NativeArrayOptions.UninitializedMemory);
@@ -52,6 +58,9 @@ namespace Unity.Physics.Systems
                     CollisionWorld = new CollisionWorld(
                         m_Bodies, m_Eabbs, m_Filters, m_MaterialFlags, m_CellBodyIndices, m_BodyIndices,
                         m_BodyEpochs, m_QueryEpoch,
+#if UNITY_EDITOR
+                        m_BodyVisiting,
+#endif
                         0, default, k_CellSize),
                     DynamicsWorld = new DynamicsWorld(
                         m_Kinematics, m_InvMasses, m_MotionVelocities, m_DampingLinear, m_DampingAngular)
@@ -301,6 +310,9 @@ namespace Unity.Physics.Systems
                 filters.GetSubArray(0, bodyIndex), flags.GetSubArray(0, bodyIndex),
                 m_CellBodyIndices.GetSubArray(0, cellTotal + 1), bodyIndices.GetSubArray(0, cellBodyIndex),
                 bodyEpochs.GetSubArray(0, bodyIndex), m_QueryEpoch,
+#if UNITY_EDITOR
+                m_BodyVisiting,
+#endif
                 numDynamicBodies, grid, k_CellSize);
             physicsWorld.DynamicsWorld = new DynamicsWorld(
                 kinematics.GetSubArray(0, bodyIndex), invMasses.GetSubArray(0, bodyIndex),
@@ -318,6 +330,9 @@ namespace Unity.Physics.Systems
             if (m_BodyIndices.IsCreated) m_BodyIndices.Dispose();
             if (m_BodyEpochs.IsCreated) m_BodyEpochs.Dispose();
             if (m_QueryEpoch.IsCreated) m_QueryEpoch.Dispose();
+#if UNITY_EDITOR
+            if (m_BodyVisiting.IsCreated) m_BodyVisiting.Dispose();
+#endif
             if (m_Kinematics.IsCreated) m_Kinematics.Dispose();
             if (m_InvMasses.IsCreated) m_InvMasses.Dispose();
             if (m_MotionVelocities.IsCreated) m_MotionVelocities.Dispose();

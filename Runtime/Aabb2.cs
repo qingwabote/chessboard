@@ -34,7 +34,7 @@ namespace Unity.Physics
     }
 
     [StructLayout(LayoutKind.Explicit)]
-    internal struct Range2
+    public struct Range2
     {
         [FieldOffset(0)] public int4 Val;
 

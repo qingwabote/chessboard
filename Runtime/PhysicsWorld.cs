@@ -7,6 +7,37 @@ namespace Unity.Physics
 {
     public struct CollisionWorld
     {
+        public ref struct BodyVisitor
+        {
+            CollisionWorld m_World;
+            readonly int m_Epoch;
+
+            internal BodyVisitor(CollisionWorld world)
+            {
+#if UNITY_EDITOR
+                UnityEngine.Debug.Assert(!world.m_BodyVisiting.Value, "Cannot open a BodyVisitor while another BodyVisitor is open");
+                world.m_BodyVisiting.Value = true;
+#endif
+                m_Epoch = ++world.m_QueryEpoch.Value;
+                m_World = world;
+            }
+
+            public BodyRange Visit(Range2 cells)
+            {
+#if UNITY_EDITOR
+                UnityEngine.Debug.Assert(m_World.m_BodyVisiting.Value, "BodyVisitor is no longer the open visitor");
+#endif
+                return new BodyRange(m_World.m_CellBodyIndices, m_World.m_BodyIndices, m_World.m_BodyEpochs, m_Epoch, cells, m_World.Grid.Min, m_World.Grid.Max.x - m_World.Grid.Min.x + 1);
+            }
+
+            public void Dispose()
+            {
+#if UNITY_EDITOR
+                m_World.m_BodyVisiting.Value = false;
+#endif
+            }
+        }
+
         public const float DefaultCollisionTolerance = 0.01f;
 
         public int NumBodies => m_Bodies.Length;
@@ -17,7 +48,7 @@ namespace Unity.Physics
         public NativeArray<RigidBody> StaticBodies => m_Bodies.GetSubArray(NumDynamicBodies, NumStaticBodies);
 
         internal ReadOnlySpan<Aabb2> Eabbs => m_Eabbs.AsSpan();
-        internal ReadOnlySpan<CollisionFilter> Filters => m_Filters.AsSpan();
+        public ReadOnlySpan<CollisionFilter> Filters => m_Filters.AsSpan();
         internal ReadOnlySpan<byte> MaterialFlags => m_MaterialFlags.AsSpan();
 
         private NativeArray<RigidBody> m_Bodies;
@@ -29,8 +60,11 @@ namespace Unity.Physics
         private NativeArray<byte> m_MaterialFlags;
         private NativeArray<int> m_BodyEpochs;
         private NativeReference<int> m_QueryEpoch;
+#if UNITY_EDITOR
+        private NativeReference<bool> m_BodyVisiting;
+#endif
 
-        internal readonly Range2 Grid;
+        public readonly Range2 Grid;
         public readonly float CellSize;
         public readonly int NumDynamicBodies;
 
@@ -39,6 +73,9 @@ namespace Unity.Physics
             NativeArray<CollisionFilter> filters, NativeArray<byte> materialFlags,
             NativeArray<int> cellBodyIndices, NativeArray<int> bodyIndices,
             NativeArray<int> bodyEpochs, NativeReference<int> queryEpoch,
+#if UNITY_EDITOR
+            NativeReference<bool> bodyVisiting,
+#endif
             int numDynamicBodies, Range2 grid, float cellSize)
         {
             m_Bodies = bodies;
@@ -49,6 +86,9 @@ namespace Unity.Physics
             m_BodyIndices = bodyIndices;
             m_BodyEpochs = bodyEpochs;
             m_QueryEpoch = queryEpoch;
+#if UNITY_EDITOR
+            m_BodyVisiting = bodyVisiting;
+#endif
             NumDynamicBodies = numDynamicBodies;
             Grid = grid;
             CellSize = cellSize;
@@ -71,14 +111,6 @@ namespace Unity.Physics
             return allHits.Length > hitsBefore;
         }
 
-        internal BodyRange BodyRange(Aabb2 aabb)
-        {
-            return new BodyRange(
-                m_CellBodyIndices, m_BodyIndices, m_BodyEpochs,
-                ++m_QueryEpoch.Value, math.clamp((int4)math.floor(aabb.Val / CellSize), Grid.Min.xyxy, Grid.Max.xyxy),
-                Grid.Min, Grid.Max.x - Grid.Min.x + 1);
-        }
-
         public bool OverlapSphere(
             float3 position, float radius, ref NativeList<DistanceHit> outHits,
             CollisionFilter filter, QueryInteraction queryInteraction = QueryInteraction.Default)
@@ -96,6 +128,19 @@ namespace Unity.Physics
                 }
             }
             return outHits.Length > hitsBefore;
+        }
+
+        internal BodyRange BodyRange(Aabb2 aabb)
+        {
+#if UNITY_EDITOR
+            UnityEngine.Debug.Assert(!m_BodyVisiting.Value, "Cannot run a collision query while a BodyVisitor is open");
+#endif
+            return new BodyRange(m_CellBodyIndices, m_BodyIndices, m_BodyEpochs, ++m_QueryEpoch.Value, math.clamp((int4)math.floor(aabb.Val / CellSize), Grid.Min.xyxy, Grid.Max.xyxy), Grid.Min, Grid.Max.x - Grid.Min.x + 1);
+        }
+
+        public BodyVisitor CreateBodyVisitor()
+        {
+            return new BodyVisitor(this);
         }
 
         public unsafe bool CastCollider(ColliderCastInput input, ref NativeList<ColliderCastHit> allHits)
@@ -246,7 +291,7 @@ namespace Unity.Physics
         }
     }
 
-    internal struct BodyRange
+    public struct BodyRange
     {
         Range2.Enumerator m_Cells;
         NativeArray<int> m_CellBodyIndices;
