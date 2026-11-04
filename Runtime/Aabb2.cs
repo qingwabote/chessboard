@@ -6,6 +6,8 @@ namespace Unity.Physics
     [StructLayout(LayoutKind.Explicit)]
     internal struct Aabb2
     {
+        public float2 Extents => Max - Min;
+
         [FieldOffset(0)] public float4 Val;
 
         [FieldOffset(0)] public float2 Min;

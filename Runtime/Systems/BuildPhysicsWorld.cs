@@ -14,8 +14,6 @@ namespace Unity.Physics.Systems
 
         NativeArray<RigidBody> m_Bodies;
         NativeArray<Aabb2> m_Eabbs;
-        NativeArray<CollisionFilter> m_Filters;
-        NativeArray<byte> m_MaterialFlags;
         NativeArray<int> m_CellBodyIndices;
         NativeArray<int> m_BodyIndices;
         NativeArray<int> m_BodyEpochs;
@@ -34,8 +32,6 @@ namespace Unity.Physics.Systems
             var persistent = Allocator.Persistent;
             m_Bodies = new NativeArray<RigidBody>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_Eabbs = new NativeArray<Aabb2>(0, persistent, NativeArrayOptions.UninitializedMemory);
-            m_Filters = new NativeArray<CollisionFilter>(0, persistent, NativeArrayOptions.UninitializedMemory);
-            m_MaterialFlags = new NativeArray<byte>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_CellBodyIndices = new NativeArray<int>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_BodyIndices = new NativeArray<int>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_BodyEpochs = new NativeArray<int>(0, persistent, NativeArrayOptions.UninitializedMemory);
@@ -56,7 +52,7 @@ namespace Unity.Physics.Systems
                 PhysicsWorld = new PhysicsWorld
                 {
                     CollisionWorld = new CollisionWorld(
-                        m_Bodies, m_Eabbs, m_Filters, m_MaterialFlags, m_CellBodyIndices, m_BodyIndices,
+                        m_Bodies, m_Eabbs, m_CellBodyIndices, m_BodyIndices,
                         m_BodyEpochs, m_QueryEpoch,
 #if UNITY_EDITOR
                         m_BodyVisiting,
@@ -69,7 +65,7 @@ namespace Unity.Physics.Systems
         }
 
         [BurstCompile]
-        unsafe public void OnUpdate(ref SystemState state)
+        public void OnUpdate(ref SystemState state)
         {
             var step = SystemAPI.TryGetSingleton(out PhysicsStep physicsStep) ? physicsStep : PhysicsStep.Default;
             float dt = SystemAPI.Time.DeltaTime;
@@ -94,8 +90,6 @@ namespace Unity.Physics.Systems
 
             var bodies = Grow(ref m_Bodies, bodyCount);
             var eabbs = Grow(ref m_Eabbs, bodyCount);
-            var filters = Grow(ref m_Filters, bodyCount);
-            var flags = Grow(ref m_MaterialFlags, bodyCount);
             var kinematics = Grow(ref m_Kinematics, bodyCount);
             var invMasses = Grow(ref m_InvMasses, bodyCount);
             var motionVelocities = Grow(ref m_MotionVelocities, bodyCount);
@@ -189,7 +183,6 @@ namespace Unity.Physics.Systems
                             Max = math.max(aabb.Max, aabb.Max + velocities[i].Linear.xz * dt) + margin
                         };
 
-                        var blob = (Collider*)collider.Value.GetUnsafePtr();
                         bodies[bodyIndex] = new RigidBody
                         {
                             Collider = collider.Value,
@@ -198,8 +191,6 @@ namespace Unity.Physics.Systems
                             Scale = scale
                         };
                         eabbs[bodyIndex] = eabb;
-                        filters[bodyIndex] = blob->m_Header.Filter;
-                        flags[bodyIndex] = (byte)blob->m_Header.Material.Flags;
                         kinematics[bodyIndex] = mass.IsKinematic ? (byte)1 : (byte)0;
                         invMasses[bodyIndex] = mass.InverseMass;
                         motionVelocities[bodyIndex] = new MotionVelocity { LinearVelocity = velocities[i].Linear };
@@ -259,7 +250,6 @@ namespace Unity.Physics.Systems
                         Aabb2 aabb = collider.Value.CalculateAabb(bodyTransform, scale);
                         aabb.Expand(step.CollisionTolerance * 0.5f);
 
-                        var blob = (Collider*)collider.Value.GetUnsafePtr();
                         bodies[bodyIndex] = new RigidBody
                         {
                             Collider = collider.Value,
@@ -268,8 +258,6 @@ namespace Unity.Physics.Systems
                             Scale = scale
                         };
                         eabbs[bodyIndex] = aabb;
-                        filters[bodyIndex] = blob->m_Header.Filter;
-                        flags[bodyIndex] = (byte)blob->m_Header.Material.Flags;
                         kinematics[bodyIndex] = 1;
                         invMasses[bodyIndex] = 0f;
                         motionVelocities[bodyIndex] = default;
@@ -307,7 +295,6 @@ namespace Unity.Physics.Systems
             ref var physicsWorld = ref SystemAPI.GetSingletonRW<PhysicsWorldSingleton>().ValueRW.PhysicsWorld;
             physicsWorld.CollisionWorld = new CollisionWorld(
                 bodies.GetSubArray(0, bodyIndex), eabbs.GetSubArray(0, bodyIndex),
-                filters.GetSubArray(0, bodyIndex), flags.GetSubArray(0, bodyIndex),
                 m_CellBodyIndices.GetSubArray(0, cellTotal + 1), bodyIndices.GetSubArray(0, cellBodyIndex),
                 bodyEpochs.GetSubArray(0, bodyIndex), m_QueryEpoch,
 #if UNITY_EDITOR
@@ -324,8 +311,6 @@ namespace Unity.Physics.Systems
         {
             if (m_Bodies.IsCreated) m_Bodies.Dispose();
             if (m_Eabbs.IsCreated) m_Eabbs.Dispose();
-            if (m_Filters.IsCreated) m_Filters.Dispose();
-            if (m_MaterialFlags.IsCreated) m_MaterialFlags.Dispose();
             if (m_CellBodyIndices.IsCreated) m_CellBodyIndices.Dispose();
             if (m_BodyIndices.IsCreated) m_BodyIndices.Dispose();
             if (m_BodyEpochs.IsCreated) m_BodyEpochs.Dispose();

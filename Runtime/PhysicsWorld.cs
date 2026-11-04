@@ -48,16 +48,12 @@ namespace Unity.Physics
         public NativeArray<RigidBody> StaticBodies => m_Bodies.GetSubArray(NumDynamicBodies, NumStaticBodies);
 
         internal ReadOnlySpan<Aabb2> Eabbs => m_Eabbs.AsSpan();
-        public ReadOnlySpan<CollisionFilter> Filters => m_Filters.AsSpan();
-        internal ReadOnlySpan<byte> MaterialFlags => m_MaterialFlags.AsSpan();
 
         private NativeArray<RigidBody> m_Bodies;
         private NativeArray<int> m_BodyIndices;
         private NativeArray<int> m_CellBodyIndices;
 
         private NativeArray<Aabb2> m_Eabbs;
-        private NativeArray<CollisionFilter> m_Filters;
-        private NativeArray<byte> m_MaterialFlags;
         private NativeArray<int> m_BodyEpochs;
         private NativeReference<int> m_QueryEpoch;
 #if UNITY_EDITOR
@@ -70,7 +66,6 @@ namespace Unity.Physics
 
         internal CollisionWorld(
             NativeArray<RigidBody> bodies, NativeArray<Aabb2> eabbs,
-            NativeArray<CollisionFilter> filters, NativeArray<byte> materialFlags,
             NativeArray<int> cellBodyIndices, NativeArray<int> bodyIndices,
             NativeArray<int> bodyEpochs, NativeReference<int> queryEpoch,
 #if UNITY_EDITOR
@@ -80,8 +75,6 @@ namespace Unity.Physics
         {
             m_Bodies = bodies;
             m_Eabbs = eabbs;
-            m_Filters = filters;
-            m_MaterialFlags = materialFlags;
             m_CellBodyIndices = cellBodyIndices;
             m_BodyIndices = bodyIndices;
             m_BodyEpochs = bodyEpochs;
@@ -105,7 +98,7 @@ namespace Unity.Physics
             foreach (int bodyIndex in BodyRange(aabb))
             {
                 if (!m_Eabbs[bodyIndex].Overlaps(aabb)) continue;
-                if (!CollisionFilter.IsCollisionEnabled(input.Filter, m_Filters[bodyIndex])) continue;
+                if (!CollisionFilter.IsCollisionEnabled(input.Filter, m_Bodies[bodyIndex].Collider.Value.GetCollisionFilter())) continue;
                 allHits.Add(bodyIndex);
             }
             return allHits.Length > hitsBefore;
@@ -170,7 +163,7 @@ namespace Unity.Physics
         {
             hit = default;
             var body = m_Bodies[bodyIndex];
-            if (!CollisionFilter.IsCollisionEnabled(filter, m_Filters[bodyIndex])) return false;
+            if (!CollisionFilter.IsCollisionEnabled(filter, body.Collider.Value.GetCollisionFilter())) return false;
 
             var leaves = new NativeList<CollisionTests.Leaf>(4, Allocator.Temp);
             CollisionTests.CollectLeaves(body, leaves);

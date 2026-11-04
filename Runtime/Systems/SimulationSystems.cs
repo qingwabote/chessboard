@@ -76,31 +76,30 @@ namespace Unity.Physics.Systems
 
             int numDynamic = collisionWorld.NumDynamicBodies;
             var eabbs = collisionWorld.Eabbs;
-            var filters = collisionWorld.Filters;
-            var materialFlags = collisionWorld.MaterialFlags;
+            var bodies = collisionWorld.Bodies;
             float dt = SystemAPI.Time.DeltaTime;
             var simulation = SystemAPI.GetSingleton<SimulationSingleton>();
 
             m_Pairs.Clear();
             for (int i = 0; i < numDynamic; i++)
             {
-                var filterI = filters[i];
+                var filterI = bodies[i].Collider.Value.GetCollisionFilter();
+                var flagsI = bodies[i].Collider.Value.m_Header.Material.Flags;
                 var eabbI = eabbs[i];
                 foreach (int j in collisionWorld.BodyRange(eabbI))
                 {
                     if (j == i) continue;
                     if (j < numDynamic && j < i) continue;
-                    var filterJ = filters[j];
+                    var filterJ = bodies[j].Collider.Value.GetCollisionFilter();
                     if ((filterI.CollidesWith & filterJ.BelongsTo) == 0) continue;
                     if ((filterJ.CollidesWith & filterI.BelongsTo) == 0) continue;
                     var eabbJ = eabbs[j];
                     if (math.any(eabbI.Max < eabbJ.Min) || math.any(eabbI.Min > eabbJ.Max)) continue;
-                    if (((MaterialFlags)(materialFlags[i] | materialFlags[j]) & MaterialFlags.DisableCollisions) != 0) continue;
+                    if (((flagsI | bodies[j].Collider.Value.m_Header.Material.Flags) & MaterialFlags.DisableCollisions) != 0) continue;
                     m_Pairs.Add(new int2(i, j));
                 }
             }
 
-            var bodies = collisionWorld.Bodies;
             var kinematics = dynamicsWorld.Kinematics;
             var motionVelocities = dynamicsWorld.MotionVelocities;
             m_Contacts.Clear();
