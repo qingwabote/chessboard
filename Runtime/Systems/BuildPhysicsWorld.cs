@@ -112,7 +112,9 @@ namespace Unity.Physics.Systems
             var occupied = new NativeArray<Range2>(bodyCount, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
             void Occupy(Aabb2 eabb)
             {
-                Range2 cells = math.clamp((int4)math.floor(eabb.Val / k_CellSize), grid.Min.xyxy, grid.Max.xyxy);
+                Range2 cells = (int4)math.floor(eabb.Val / k_CellSize);
+                cells.Min = math.max(cells.Min, grid.Min);
+                cells.Max = math.min(cells.Max, grid.Max);
                 foreach (int2 xy in cells)
                 {
                     occupancy[CellIndex(xy)]++;

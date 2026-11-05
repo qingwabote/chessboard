@@ -48,6 +48,7 @@ namespace Unity.Physics
         public NativeArray<RigidBody> StaticBodies => m_Bodies.GetSubArray(NumDynamicBodies, NumStaticBodies);
 
         internal ReadOnlySpan<Aabb2> Eabbs => m_Eabbs.AsSpan();
+        internal ReadOnlySpan<int> CellBodyIndices => m_CellBodyIndices.AsSpan();
 
         private NativeArray<RigidBody> m_Bodies;
         private NativeArray<int> m_BodyIndices;
@@ -128,7 +129,10 @@ namespace Unity.Physics
 #if UNITY_EDITOR
             UnityEngine.Debug.Assert(!m_BodyVisiting.Value, "Cannot run a collision query while a BodyVisitor is open");
 #endif
-            return new BodyRange(m_CellBodyIndices, m_BodyIndices, m_BodyEpochs, ++m_QueryEpoch.Value, math.clamp((int4)math.floor(aabb.Val / CellSize), Grid.Min.xyxy, Grid.Max.xyxy), Grid.Min, Grid.Max.x - Grid.Min.x + 1);
+            Range2 cells = (int4)math.floor(aabb.Val / CellSize);
+            cells.Min = math.max(cells.Min, Grid.Min);
+            cells.Max = math.min(cells.Max, Grid.Max);
+            return new BodyRange(m_CellBodyIndices, m_BodyIndices, m_BodyEpochs, ++m_QueryEpoch.Value, cells, Grid.Min, Grid.Max.x - Grid.Min.x + 1);
         }
 
         public BodyVisitor CreateBodyVisitor()

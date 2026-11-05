@@ -7,6 +7,7 @@ namespace Unity.Physics
     internal struct Aabb2
     {
         public float2 Extents => Max - Min;
+        public float2 Center => 0.5f * (Min + Max);
 
         [FieldOffset(0)] public float4 Val;
 
