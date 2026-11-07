@@ -3,6 +3,7 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Physics.Extensions;
 using Unity.Transforms;
 
 namespace Unity.Physics.Systems
@@ -174,6 +175,7 @@ namespace Unity.Physics.Systems
                         Aabb2 aabb = collider.Value.CalculateAabb(bodyTransform, scale);
 
                         var mass = hasMass ? masses[i] : PhysicsMass.CreateKinematic(MassProperties.UnitSphere);
+                        mass = mass.ApplyScale(scale);
 
                         var uniform = math.min(
                             math.length(velocities[i].Angular) * dt * mass.AngularExpansionFactor,
