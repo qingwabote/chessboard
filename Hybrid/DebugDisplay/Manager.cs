@@ -178,8 +178,7 @@ namespace Unity.DebugDisplay
         internal static float FractionalCellsWide => (float)PixelsWide / kPixelsWide;
         internal static float FractionalCellsTall => (float)PixelsTall / kPixelsTall;
 
-        internal static string debugDirName =
-            "Packages/com.logan.chessboard/Hybrid/DebugDisplay/DebugDisplayResources/";
+        internal static string debugDirName = "Packages/chessboard/Hybrid/DebugDisplay/DebugDisplayResources/";
         internal static string lineMaterialFileName = "LineMaterial";
 
 
