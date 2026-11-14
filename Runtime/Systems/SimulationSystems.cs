@@ -1,3 +1,4 @@
+using Bastard;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
@@ -236,34 +237,30 @@ namespace Unity.Physics.Systems
                 {
                     int bi = bodyIndex++;
 
-                    var v = velocities[i];
-                    v.Linear = motionVelocities[bi].LinearVelocity;
+                    var linear = motionVelocities[bi].LinearVelocity;
+                    var angular = velocities[i].Angular;
 
-                    var tr = transforms[i];
-                    float3 position = tr.Position;
-                    position += v.Linear * dt;
+                    var bodyPose = bodies[bi].WorldFromBody;
 
-                    var rotation = tr.Rotation;
-                    if (math.any(v.Angular))
+                    ref var tr = ref transforms.ElementAt(i);
+                    if (math.any(angular))
                     {
                         var mass = hasMass ? masses[i] : PhysicsMass.CreateKinematic(MassProperties.UnitSphere);
-                        var worldFromMotion = math.mul(rotation, mass.Transform.rot);
-                        var angularWorld = math.rotate(worldFromMotion, v.Angular);
+                        var worldFromMotion = math.mul(bodyPose.rot, mass.Transform.rot);
+                        var angularWorld = math.rotate(worldFromMotion, angular);
                         var angle = math.length(angularWorld) * dt;
                         if (angle > 1e-8f)
                         {
-                            rotation = math.normalize(math.mul(
-                                quaternion.AxisAngle(angularWorld / math.length(angularWorld), angle), rotation));
+                            tr.Rotation = math.normalize(math.mul(quaternion.AxisAngle(angularWorld / math.length(angularWorld), angle), bodyPose.rot));
                         }
                     }
+                    tr.Position = bodyPose.pos + linear * dt;
 
-                    v.Linear *= math.clamp(1f - dampingLinear[bi] * dt, 0f, 1f);
-                    v.Angular *= math.clamp(1f - dampingAngular[bi] * dt, 0f, 1f);
-
-                    tr.Position = position;
-                    tr.Rotation = rotation;
-                    transforms[i] = tr;
-                    velocities[i] = v;
+                    velocities[i] = new()
+                    {
+                        Linear = linear * math.clamp(1f - dampingLinear[bi] * dt, 0f, 1f),
+                        Angular = angular * math.clamp(1f - dampingAngular[bi] * dt, 0f, 1f)
+                    };
                 }
             }
         }
