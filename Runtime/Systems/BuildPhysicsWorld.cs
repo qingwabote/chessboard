@@ -132,7 +132,7 @@ namespace Unity.Physics.Systems
                 var velocityHandle = SystemAPI.GetComponentTypeHandle<PhysicsVelocity>(true);
                 var massHandle = SystemAPI.GetComponentTypeHandle<PhysicsMass>(true);
                 var dampingHandle = SystemAPI.GetComponentTypeHandle<PhysicsDamping>(true);
-                foreach (var chunk in SystemAPI.QueryBuilder().WithAll<PhysicsCollider, LocalTransform, PhysicsVelocity>().Build().ToArchetypeChunkArray(Allocator.Temp))
+                foreach (var chunk in SystemAPI.QueryBuilder().WithAll<PhysicsCollider, LocalTransform, PhysicsVelocity, PhysicsMass>().Build().ToArchetypeChunkArray(Allocator.Temp))
                 {
                     var colliders = chunk.GetNativeArray(ref colliderHandle);
                     var transforms = chunk.GetNativeArray(ref transformHandle);
@@ -143,7 +143,6 @@ namespace Unity.Physics.Systems
                     var worlds = chunk.GetNativeArray(ref localToWorldHandle);
                     bool hasLocal = transforms.IsCreated;
                     bool hasWorld = worlds.IsCreated;
-                    bool hasMass = masses.IsCreated;
                     bool hasDamping = dampings.IsCreated;
                     bool hasParent = chunk.Has(ref parentHandle);
                     for (int i = 0; i < chunk.Count; i++)
@@ -174,7 +173,7 @@ namespace Unity.Physics.Systems
                         float scale = hasLocal ? transforms[i].Scale : 1f;
                         Aabb2 aabb = collider.Value.CalculateAabb(bodyTransform, scale);
 
-                        var mass = hasMass ? masses[i] : PhysicsMass.CreateKinematic(MassProperties.UnitSphere);
+                        var mass = masses[i];
                         mass = mass.ApplyScale(scale);
 
                         var uniform = math.min(

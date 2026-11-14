@@ -223,45 +223,34 @@ namespace Unity.Physics.Systems
 
             var dampingLinear = dynamicsWorld.DampingLinear;
             var dampingAngular = dynamicsWorld.DampingAngular;
-            var transformHandle = SystemAPI.GetComponentTypeHandle<LocalTransform>();
-            var velocityHandle = SystemAPI.GetComponentTypeHandle<PhysicsVelocity>();
-            var massHandle = SystemAPI.GetComponentTypeHandle<PhysicsMass>(true);
             int bodyIndex = 0;
-            foreach (var chunk in SystemAPI.QueryBuilder().WithAll<PhysicsCollider, LocalTransform, PhysicsVelocity>().Build().ToArchetypeChunkArray(Allocator.Temp))
+            foreach (var (transform, velocity, mass) in SystemAPI.Query<RefRW<LocalTransform>, RefRW<PhysicsVelocity>, PhysicsMass>().WithAll<PhysicsCollider>())
             {
-                var transforms = chunk.GetNativeArray(ref transformHandle);
-                var velocities = chunk.GetNativeArray(ref velocityHandle);
-                var masses = chunk.GetNativeArray(ref massHandle);
-                bool hasMass = masses.IsCreated;
-                for (int i = 0; i < chunk.Count; i++)
+                int bi = bodyIndex++;
+
+                var linear = motionVelocities[bi].LinearVelocity;
+                var angular = velocity.ValueRO.Angular;
+
+                var bodyPose = bodies[bi].WorldFromBody;
+
+                ref var tr = ref transform.ValueRW;
+                if (math.any(angular))
                 {
-                    int bi = bodyIndex++;
-
-                    var linear = motionVelocities[bi].LinearVelocity;
-                    var angular = velocities[i].Angular;
-
-                    var bodyPose = bodies[bi].WorldFromBody;
-
-                    ref var tr = ref transforms.ElementAt(i);
-                    if (math.any(angular))
+                    var worldFromMotion = math.mul(bodyPose.rot, mass.Transform.rot);
+                    var angularWorld = math.rotate(worldFromMotion, angular);
+                    var angle = math.length(angularWorld) * dt;
+                    if (angle > 1e-8f)
                     {
-                        var mass = hasMass ? masses[i] : PhysicsMass.CreateKinematic(MassProperties.UnitSphere);
-                        var worldFromMotion = math.mul(bodyPose.rot, mass.Transform.rot);
-                        var angularWorld = math.rotate(worldFromMotion, angular);
-                        var angle = math.length(angularWorld) * dt;
-                        if (angle > 1e-8f)
-                        {
-                            tr.Rotation = math.normalize(math.mul(quaternion.AxisAngle(angularWorld / math.length(angularWorld), angle), bodyPose.rot));
-                        }
+                        tr.Rotation = math.normalize(math.mul(quaternion.AxisAngle(angularWorld / math.length(angularWorld), angle), bodyPose.rot));
                     }
-                    tr.Position = bodyPose.pos + linear * dt;
-
-                    velocities[i] = new()
-                    {
-                        Linear = linear * math.clamp(1f - dampingLinear[bi] * dt, 0f, 1f),
-                        Angular = angular * math.clamp(1f - dampingAngular[bi] * dt, 0f, 1f)
-                    };
                 }
+                tr.Position = bodyPose.pos + linear * dt;
+
+                velocity.ValueRW = new()
+                {
+                    Linear = linear * math.clamp(1f - dampingLinear[bi] * dt, 0f, 1f),
+                    Angular = angular * math.clamp(1f - dampingAngular[bi] * dt, 0f, 1f)
+                };
             }
         }
     }
