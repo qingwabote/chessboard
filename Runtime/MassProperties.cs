@@ -26,7 +26,6 @@ namespace Unity.Physics
     {
         public MassDistribution MassDistribution;
         public float Volume;
-        public float AngularExpansionFactor;
 
         public static readonly MassProperties UnitSphere = new MassProperties
         {
@@ -35,8 +34,7 @@ namespace Unity.Physics
                 Transform = RigidTransform.identity,
                 InertiaTensor = new float3(2f / 5f)
             },
-            Volume = 4f / 3f * math.PI,
-            AngularExpansionFactor = 1f
+            Volume = 4f / 3f * math.PI
         };
 
         public MassProperties Scale(float scale)
@@ -45,7 +43,6 @@ namespace Unity.Physics
             result.MassDistribution.Transform.pos *= scale;
             result.MassDistribution.InertiaTensor *= scale * scale;
             result.Volume *= math.abs(scale * scale * scale);
-            result.AngularExpansionFactor *= math.abs(scale);
             return result;
         }
 
@@ -61,8 +58,7 @@ namespace Unity.Physics
                         size.x * size.x + size.z * size.z,
                         size.x * size.x + size.y * size.y) / 12f
                 },
-                Volume = size.x * size.y * size.z,
-                AngularExpansionFactor = math.cmax(0.5f * size)
+                Volume = size.x * size.y * size.z
             };
         }
 
@@ -75,16 +71,14 @@ namespace Unity.Physics
                     Transform = RigidTransform.identity,
                     InertiaTensor = new float3(2f / 5f * radius * radius)
                 },
-                Volume = 4f / 3f * math.PI * radius * radius * radius,
-                AngularExpansionFactor = 1f
+                Volume = 4f / 3f * math.PI * radius * radius * radius
             };
         }
 
         public bool Equals(MassProperties other)
         {
             return MassDistribution.Equals(other.MassDistribution)
-                && Volume.Equals(other.Volume)
-                && AngularExpansionFactor.Equals(other.AngularExpansionFactor);
+                && Volume.Equals(other.Volume);
         }
 
         public override int GetHashCode()
@@ -93,7 +87,6 @@ namespace Unity.Physics
             {
                 var hashCode = MassDistribution.GetHashCode();
                 hashCode = (hashCode * 397) ^ Volume.GetHashCode();
-                hashCode = (hashCode * 397) ^ AngularExpansionFactor.GetHashCode();
                 return hashCode;
             }
         }

@@ -21,7 +21,6 @@ namespace Unity.Physics
         public RigidTransform Transform;
         public float InverseMass;
         public float3 InverseInertia;
-        public float AngularExpansionFactor;
 
         public float3 CenterOfMass
         {
@@ -45,8 +44,7 @@ namespace Unity.Physics
             {
                 Transform = massProperties.MassDistribution.Transform,
                 InverseMass = math.rcp(math.max(math.abs(mass), float.MinValue)),
-                InverseInertia = math.rcp(massProperties.MassDistribution.InertiaTensor * mass),
-                AngularExpansionFactor = massProperties.AngularExpansionFactor
+                InverseInertia = math.rcp(massProperties.MassDistribution.InertiaTensor * mass)
             };
         }
 
@@ -56,8 +54,7 @@ namespace Unity.Physics
             {
                 Transform = massProperties.MassDistribution.Transform,
                 InverseMass = 0f,
-                InverseInertia = float3.zero,
-                AngularExpansionFactor = massProperties.AngularExpansionFactor
+                InverseInertia = float3.zero
             };
         }
     }
@@ -65,19 +62,11 @@ namespace Unity.Physics
     public struct PhysicsVelocity : IComponentData
     {
         public float3 Linear;
-        public float3 Angular;
-
-        public static readonly PhysicsVelocity Zero = new PhysicsVelocity
-        {
-            Linear = float3.zero,
-            Angular = float3.zero
-        };
     }
 
     public struct PhysicsDamping : IComponentData
     {
         public float Linear;
-        public float Angular;
     }
 
     public struct EnsureUniqueColliderBlobTag : IComponentData

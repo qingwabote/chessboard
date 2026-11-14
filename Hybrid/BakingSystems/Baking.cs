@@ -186,7 +186,7 @@ namespace Unity.Physics.Authoring
         public override void Bake(Rigidbody authoring)
         {
             DependsOn(authoring);
-            var entity = GetEntity(TransformUsageFlags.Dynamic);
+            var entity = GetEntity(TransformUsageFlags.Dynamic | TransformUsageFlags.WorldSpace);
             var colliderBlob = BakeAllColliders(authoring.gameObject, entity, true);
 
             if (authoring.gameObject.isStatic)
@@ -206,8 +206,7 @@ namespace Unity.Physics.Authoring
             {
                 AddComponent(entity, new PhysicsDamping
                 {
-                    Linear = authoring.linearDamping,
-                    Angular = authoring.angularDamping
+                    Linear = authoring.linearDamping
                 });
             }
         }

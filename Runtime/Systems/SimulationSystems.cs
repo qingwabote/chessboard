@@ -222,34 +222,21 @@ namespace Unity.Physics.Systems
             }
 
             var dampingLinear = dynamicsWorld.DampingLinear;
-            var dampingAngular = dynamicsWorld.DampingAngular;
             int bodyIndex = 0;
-            foreach (var (transform, velocity, mass) in SystemAPI.Query<RefRW<LocalTransform>, RefRW<PhysicsVelocity>, PhysicsMass>().WithAll<PhysicsCollider>())
+            foreach (var (transform, velocity) in SystemAPI.Query<RefRW<LocalTransform>, RefRW<PhysicsVelocity>>().WithAll<PhysicsCollider, PhysicsMass>())
             {
                 int bi = bodyIndex++;
 
                 var linear = motionVelocities[bi].LinearVelocity;
-                var angular = velocity.ValueRO.Angular;
 
                 var bodyPose = bodies[bi].WorldFromBody;
 
                 ref var tr = ref transform.ValueRW;
-                if (math.any(angular))
-                {
-                    var worldFromMotion = math.mul(bodyPose.rot, mass.Transform.rot);
-                    var angularWorld = math.rotate(worldFromMotion, angular);
-                    var angle = math.length(angularWorld) * dt;
-                    if (angle > 1e-8f)
-                    {
-                        tr.Rotation = math.normalize(math.mul(quaternion.AxisAngle(angularWorld / math.length(angularWorld), angle), bodyPose.rot));
-                    }
-                }
                 tr.Position = bodyPose.pos + linear * dt;
 
                 velocity.ValueRW = new()
                 {
-                    Linear = linear * math.clamp(1f - dampingLinear[bi] * dt, 0f, 1f),
-                    Angular = angular * math.clamp(1f - dampingAngular[bi] * dt, 0f, 1f)
+                    Linear = linear * math.clamp(1f - dampingLinear[bi] * dt, 0f, 1f)
                 };
             }
         }

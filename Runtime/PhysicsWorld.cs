@@ -347,24 +347,20 @@ namespace Unity.Physics
         internal ReadOnlySpan<float> InvMasses => m_InvMasses.AsSpan();
         public NativeArray<MotionVelocity> MotionVelocities => m_MotionVelocities;
         internal ReadOnlySpan<float> DampingLinear => m_DampingLinear.AsSpan();
-        internal ReadOnlySpan<float> DampingAngular => m_DampingAngular.AsSpan();
 
         private NativeArray<byte> m_Kinematics;
         private NativeArray<float> m_InvMasses;
         private NativeArray<MotionVelocity> m_MotionVelocities;
         private NativeArray<float> m_DampingLinear;
-        private NativeArray<float> m_DampingAngular;
 
         internal DynamicsWorld(
             NativeArray<byte> kinematics, NativeArray<float> invMasses,
-            NativeArray<MotionVelocity> motionVelocities, NativeArray<float> dampingLinear,
-            NativeArray<float> dampingAngular)
+            NativeArray<MotionVelocity> motionVelocities, NativeArray<float> dampingLinear)
         {
             m_Kinematics = kinematics;
             m_InvMasses = invMasses;
             m_MotionVelocities = motionVelocities;
             m_DampingLinear = dampingLinear;
-            m_DampingAngular = dampingAngular;
         }
     }
 

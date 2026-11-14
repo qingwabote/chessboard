@@ -69,7 +69,6 @@ namespace Unity.Physics
                 var mp = children[i].Collider.Value.MassProperties;
                 massProperties.MassDistribution.InertiaTensor += mp.MassDistribution.InertiaTensor;
                 massProperties.Volume += mp.Volume;
-                massProperties.AngularExpansionFactor = math.max(massProperties.AngularExpansionFactor, mp.AngularExpansionFactor);
             }
 
             var size = sizeof(CompoundCollider) + children.Length * sizeof(Child);

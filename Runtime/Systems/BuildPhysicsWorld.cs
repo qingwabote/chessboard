@@ -26,7 +26,6 @@ namespace Unity.Physics.Systems
         NativeArray<float> m_InvMasses;
         NativeArray<MotionVelocity> m_MotionVelocities;
         NativeArray<float> m_DampingLinear;
-        NativeArray<float> m_DampingAngular;
 
         public void OnCreate(ref SystemState state)
         {
@@ -44,7 +43,6 @@ namespace Unity.Physics.Systems
             m_InvMasses = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_MotionVelocities = new NativeArray<MotionVelocity>(0, persistent, NativeArrayOptions.UninitializedMemory);
             m_DampingLinear = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
-            m_DampingAngular = new NativeArray<float>(0, persistent, NativeArrayOptions.UninitializedMemory);
 
             var entity = state.EntityManager.CreateEntity(typeof(PhysicsWorldSingleton));
             state.EntityManager.SetName(entity, "PhysicsWorldSingleton");
@@ -60,7 +58,7 @@ namespace Unity.Physics.Systems
 #endif
                         0, default, k_CellSize),
                     DynamicsWorld = new DynamicsWorld(
-                        m_Kinematics, m_InvMasses, m_MotionVelocities, m_DampingLinear, m_DampingAngular)
+                        m_Kinematics, m_InvMasses, m_MotionVelocities, m_DampingLinear)
                 }
             });
         }
@@ -95,7 +93,6 @@ namespace Unity.Physics.Systems
             var invMasses = Grow(ref m_InvMasses, bodyCount);
             var motionVelocities = Grow(ref m_MotionVelocities, bodyCount);
             var dampingLinear = Grow(ref m_DampingLinear, bodyCount);
-            var dampingAngular = Grow(ref m_DampingAngular, bodyCount);
             if (m_BodyEpochs.Length < bodyCount)
             {
                 m_BodyEpochs.Dispose();
@@ -176,10 +173,7 @@ namespace Unity.Physics.Systems
                         var mass = masses[i];
                         mass = mass.ApplyScale(scale);
 
-                        var uniform = math.min(
-                            math.length(velocities[i].Angular) * dt * mass.AngularExpansionFactor,
-                            mass.AngularExpansionFactor);
-                        var margin = uniform + step.CollisionTolerance * 0.5f;
+                        var margin = step.CollisionTolerance * 0.5f;
                         Aabb2 eabb = new Aabb2
                         {
                             Min = math.min(aabb.Min, aabb.Min + velocities[i].Linear.xz * dt) - margin,
@@ -200,12 +194,10 @@ namespace Unity.Physics.Systems
                         if (hasDamping)
                         {
                             dampingLinear[bodyIndex] = dampings[i].Linear;
-                            dampingAngular[bodyIndex] = dampings[i].Angular;
                         }
                         else
                         {
                             dampingLinear[bodyIndex] = 0f;
-                            dampingAngular[bodyIndex] = 0f;
                         }
                         Occupy(eabb);
                         bodyIndex++;
@@ -265,7 +257,6 @@ namespace Unity.Physics.Systems
                         invMasses[bodyIndex] = 0f;
                         motionVelocities[bodyIndex] = default;
                         dampingLinear[bodyIndex] = 0f;
-                        dampingAngular[bodyIndex] = 0f;
                         Occupy(aabb);
                         bodyIndex++;
                     }
@@ -306,8 +297,7 @@ namespace Unity.Physics.Systems
                 numDynamicBodies, grid, k_CellSize);
             physicsWorld.DynamicsWorld = new DynamicsWorld(
                 kinematics.GetSubArray(0, bodyIndex), invMasses.GetSubArray(0, bodyIndex),
-                motionVelocities.GetSubArray(0, bodyIndex), dampingLinear.GetSubArray(0, bodyIndex),
-                dampingAngular.GetSubArray(0, bodyIndex));
+                motionVelocities.GetSubArray(0, bodyIndex), dampingLinear.GetSubArray(0, bodyIndex));
         }
 
         public void OnDestroy(ref SystemState state)
@@ -325,7 +315,6 @@ namespace Unity.Physics.Systems
             if (m_InvMasses.IsCreated) m_InvMasses.Dispose();
             if (m_MotionVelocities.IsCreated) m_MotionVelocities.Dispose();
             if (m_DampingLinear.IsCreated) m_DampingLinear.Dispose();
-            if (m_DampingAngular.IsCreated) m_DampingAngular.Dispose();
         }
 
         // Physics internally represents all rigid bodies in world space. If a static body is in a
