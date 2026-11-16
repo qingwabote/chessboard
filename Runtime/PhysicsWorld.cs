@@ -1,5 +1,6 @@
 using System;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
 
@@ -421,7 +422,12 @@ namespace Unity.Physics
 
     public struct SimulationSingleton : IComponentData
     {
-        internal NativeList<TriggerEventData> TriggerEvents;
-        internal NativeList<CollisionEventData> CollisionEvents;
+        internal NativeList<TriggerEvent> TriggerEvents;
+        internal NativeList<CollisionEvent> CollisionEvents;
+
+        public Simulation AsSimulation()
+        {
+            return UnsafeUtility.As<SimulationSingleton, Simulation>(ref this);
+        }
     }
 }

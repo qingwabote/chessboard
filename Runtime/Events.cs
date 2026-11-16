@@ -1,45 +1,72 @@
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
 
 namespace Unity.Physics
 {
-    internal struct TriggerEventData
+    public readonly struct TriggerEvent
     {
-        public Entity EntityA;
-        public Entity EntityB;
-        public int BodyIndexA;
-        public int BodyIndexB;
+        public readonly Entity EntityA;
+        public readonly Entity EntityB;
+        public readonly int BodyIndexA;
+        public readonly int BodyIndexB;
+
+        public TriggerEvent(Entity entityA, Entity entityB, int bodyIndexA, int bodyIndexB)
+        {
+            EntityA = entityA;
+            EntityB = entityB;
+            BodyIndexA = bodyIndexA;
+            BodyIndexB = bodyIndexB;
+        }
     }
 
-    public struct TriggerEvent
+    public readonly struct CollisionEvent
     {
-        internal TriggerEventData Data;
+        public readonly Entity EntityA;
+        public readonly Entity EntityB;
+        public readonly int BodyIndexA;
+        public readonly int BodyIndexB;
+        public readonly float3 Normal;
 
-        public Entity EntityA => Data.EntityA;
-        public Entity EntityB => Data.EntityB;
-        public int BodyIndexA => Data.BodyIndexA;
-        public int BodyIndexB => Data.BodyIndexB;
+        public CollisionEvent(Entity entityA, Entity entityB, int bodyIndexA, int bodyIndexB, float3 normal)
+        {
+            EntityA = entityA;
+            EntityB = entityB;
+            BodyIndexA = bodyIndexA;
+            BodyIndexB = bodyIndexB;
+            Normal = normal;
+        }
     }
 
-    internal struct CollisionEventData
+    public struct TriggerEvents
     {
-        public Entity EntityA;
-        public Entity EntityB;
-        public int BodyIndexA;
-        public int BodyIndexB;
-        public float3 Normal;
+#pragma warning disable 649
+        NativeList<TriggerEvent> m_Events;
+#pragma warning restore 649
+
+        public NativeArray<TriggerEvent>.Enumerator GetEnumerator() => m_Events.GetEnumerator();
     }
 
-    public struct CollisionEvent
+    public struct CollisionEvents
     {
-        internal CollisionEventData Data;
+#pragma warning disable 649
+        NativeList<CollisionEvent> m_Events;
+#pragma warning restore 649
 
-        public Entity EntityA => Data.EntityA;
-        public Entity EntityB => Data.EntityB;
-        public int BodyIndexA => Data.BodyIndexA;
-        public int BodyIndexB => Data.BodyIndexB;
-        public float3 Normal => Data.Normal;
+        public NativeArray<CollisionEvent>.Enumerator GetEnumerator() => m_Events.GetEnumerator();
+    }
+
+    public struct Simulation
+    {
+#pragma warning disable 649
+        NativeList<TriggerEvent> m_TriggerEvents;
+        NativeList<CollisionEvent> m_CollisionEvents;
+#pragma warning restore 649
+
+        public TriggerEvents TriggerEvents => UnsafeUtility.As<NativeList<TriggerEvent>, TriggerEvents>(ref m_TriggerEvents);
+        public CollisionEvents CollisionEvents => UnsafeUtility.As<NativeList<CollisionEvent>, CollisionEvents>(ref m_CollisionEvents);
     }
 
     public interface ITriggerEventsJobBase
@@ -70,7 +97,7 @@ namespace Unity.Physics
             var events = simulationSingleton.TriggerEvents;
             for (int i = 0; i < events.Length; i++)
             {
-                jobData.Execute(new TriggerEvent { Data = events[i] });
+                jobData.Execute(events[i]);
             }
             return default;
         }
@@ -86,7 +113,7 @@ namespace Unity.Physics
             var events = simulationSingleton.CollisionEvents;
             for (int i = 0; i < events.Length; i++)
             {
-                jobData.Execute(new CollisionEvent { Data = events[i] });
+                jobData.Execute(events[i]);
             }
             return default;
         }

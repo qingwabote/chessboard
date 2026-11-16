@@ -23,8 +23,8 @@ namespace Unity.Physics.Systems
         NativeList<Contact> m_Contacts;
         NativeList<CollisionTests.Leaf> m_LeavesA;
         NativeList<CollisionTests.Leaf> m_LeavesB;
-        NativeList<TriggerEventData> m_TriggerEvents;
-        NativeList<CollisionEventData> m_CollisionEvents;
+        NativeList<TriggerEvent> m_TriggerEvents;
+        NativeList<CollisionEvent> m_CollisionEvents;
 
         public void OnCreate(ref SystemState state)
         {
@@ -33,8 +33,8 @@ namespace Unity.Physics.Systems
             m_Contacts = new NativeList<Contact>(128, persistent);
             m_LeavesA = new NativeList<CollisionTests.Leaf>(4, persistent);
             m_LeavesB = new NativeList<CollisionTests.Leaf>(4, persistent);
-            m_TriggerEvents = new NativeList<TriggerEventData>(64, persistent);
-            m_CollisionEvents = new NativeList<CollisionEventData>(64, persistent);
+            m_TriggerEvents = new NativeList<TriggerEvent>(64, persistent);
+            m_CollisionEvents = new NativeList<CollisionEvent>(64, persistent);
 
             var entity = state.EntityManager.CreateEntity(typeof(SimulationSingleton));
             state.EntityManager.SetName(entity, "SimulationSingleton");
@@ -79,7 +79,6 @@ namespace Unity.Physics.Systems
             var eabbs = collisionWorld.Eabbs;
             var bodies = collisionWorld.Bodies;
             float dt = SystemAPI.Time.DeltaTime;
-            var simulation = SystemAPI.GetSingleton<SimulationSingleton>();
 
             m_Pairs.Clear();
             for (int i = 0; i < numDynamic; i++)
@@ -150,26 +149,22 @@ namespace Unity.Physics.Systems
                         int indexB = j >= numDynamic ? i : j;
                         if (combined == CollisionResponsePolicy.RaiseTriggerEvents)
                         {
-                            simulation.TriggerEvents.Add(new TriggerEventData
-                            {
-                                EntityA = bodies[indexA].Entity,
-                                EntityB = bodies[indexB].Entity,
-                                BodyIndexA = indexA,
-                                BodyIndexB = indexB
-                            });
+                            m_TriggerEvents.Add(new TriggerEvent(
+                                bodies[indexA].Entity,
+                                bodies[indexB].Entity,
+                                indexA,
+                                indexB));
                         }
                         else
                         {
                             if (combined == CollisionResponsePolicy.CollideRaiseCollisionEvents)
                             {
-                                simulation.CollisionEvents.Add(new CollisionEventData
-                                {
-                                    EntityA = bodies[indexA].Entity,
-                                    EntityB = bodies[indexB].Entity,
-                                    BodyIndexA = indexA,
-                                    BodyIndexB = indexB,
-                                    Normal = normal
-                                });
+                                m_CollisionEvents.Add(new CollisionEvent(
+                                    bodies[indexA].Entity,
+                                    bodies[indexB].Entity,
+                                    indexA,
+                                    indexB,
+                                    normal));
                             }
                             if (!bothKinematic)
                             {
@@ -207,14 +202,12 @@ namespace Unity.Physics.Systems
                     {
                         int indexA = contact.B >= numDynamic ? contact.B : contact.A;
                         int indexB = contact.B >= numDynamic ? contact.A : contact.B;
-                        simulation.CollisionEvents.Add(new CollisionEventData
-                        {
-                            EntityA = bodies[indexA].Entity,
-                            EntityB = bodies[indexB].Entity,
-                            BodyIndexA = indexA,
-                            BodyIndexB = indexB,
-                            Normal = contact.Normal
-                        });
+                        m_CollisionEvents.Add(new CollisionEvent(
+                            bodies[indexA].Entity,
+                            bodies[indexB].Entity,
+                            indexA,
+                            indexB,
+                            contact.Normal));
                         contact.RaisesEvents = false;
                         m_Contacts[c] = contact;
                     }
