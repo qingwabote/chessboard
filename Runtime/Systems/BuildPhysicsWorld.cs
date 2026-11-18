@@ -124,7 +124,9 @@ namespace Unity.Physics.Systems
             var transformHandle = SystemAPI.GetComponentTypeHandle<LocalTransform>(true);
             var entityHandle = SystemAPI.GetEntityTypeHandle();
             var parentHandle = SystemAPI.GetComponentTypeHandle<Parent>(true);
-            var localToWorldHandle = SystemAPI.GetComponentTypeHandle<LocalToWorld>(true);
+            var transformLookup = SystemAPI.GetComponentLookup<LocalTransform>(true);
+            var parentLookup = SystemAPI.GetComponentLookup<Parent>(true);
+            var postTransformLookup = SystemAPI.GetComponentLookup<PostTransformMatrix>(true);
             {
                 var velocityHandle = SystemAPI.GetComponentTypeHandle<PhysicsVelocity>(true);
                 var massHandle = SystemAPI.GetComponentTypeHandle<PhysicsMass>(true);
@@ -137,44 +139,32 @@ namespace Unity.Physics.Systems
                     var entities = chunk.GetNativeArray(entityHandle);
                     var masses = chunk.GetNativeArray(ref massHandle);
                     var dampings = chunk.GetNativeArray(ref dampingHandle);
-                    var worlds = chunk.GetNativeArray(ref localToWorldHandle);
-                    bool hasLocal = transforms.IsCreated;
-                    bool hasWorld = worlds.IsCreated;
                     bool hasDamping = dampings.IsCreated;
                     bool hasParent = chunk.Has(ref parentHandle);
                     for (int i = 0; i < chunk.Count; i++)
                     {
                         var collider = colliders[i];
-                        // We support rigid body entities with various different transformation data components.
-                        // Here, we are extracting their world space transformation and feed it into the underlying
-                        // physics engine for processing in the pipeline (e.g., collision detection, solver, integration).
-                        // If the rigid body has a Parent, we obtain their world space transformation from their up-to date
-                        // LocalToWorld matrix. Any shear or scale in this matrix is ignored and only the rigid body transformation,
-                        // i.e., the position and orientation, is extracted.
-                        // If the rigid body has no Parent, we use the position and orientation of its LocalTransform component as world transform
-                        // if present. Otherwise, we again extract the transformation from the LocalToWorld matrix.
-                        // Copy from Unity.Physics 1.4.5 (com.unity.physics@0dfa150f2a43), PhysicsWorldBuilder.cs:680-697.
+                        var transform = transforms[i];
+                        var entity = entities[i];
                         RigidTransform bodyTransform = RigidTransform.identity;
-                        if (hasParent || !hasLocal)
+                        if (hasParent)
                         {
-                            if (hasWorld)
-                            {
-                                bodyTransform = DecomposeRigidBodyTransform(worlds[i].Value);
-                            }
+                            TransformHelpers.ComputeWorldTransformMatrix(entity, out float4x4 world,
+                                ref transformLookup, ref parentLookup, ref postTransformLookup);
+                            bodyTransform = DecomposeRigidBodyTransform(world);
                         }
                         else
                         {
-                            bodyTransform.pos = transforms[i].Position;
-                            bodyTransform.rot = transforms[i].Rotation;
+                            bodyTransform.pos = transform.Position;
+                            bodyTransform.rot = transform.Rotation;
                         }
-                        float scale = hasLocal ? transforms[i].Scale : 1f;
-                        Aabb2 aabb = collider.Value.CalculateAabb(bodyTransform, scale);
+                        Aabb2 aabb = collider.Value.CalculateAabb(bodyTransform, transform.Scale);
 
                         var mass = masses[i];
-                        mass = mass.ApplyScale(scale);
+                        mass = mass.ApplyScale(transform.Scale);
 
                         var margin = step.CollisionTolerance * 0.5f;
-                        Aabb2 eabb = new Aabb2
+                        Aabb2 eabb = new()
                         {
                             Min = math.min(aabb.Min, aabb.Min + velocities[i].Linear.xz * dt) - margin,
                             Max = math.max(aabb.Max, aabb.Max + velocities[i].Linear.xz * dt) + margin
@@ -184,8 +174,8 @@ namespace Unity.Physics.Systems
                         {
                             Collider = collider.Value,
                             WorldFromBody = bodyTransform,
-                            Entity = entities[i],
-                            Scale = scale
+                            Entity = entity,
+                            Scale = transform.Scale
                         };
                         eabbs[bodyIndex] = eabb;
                         kinematics[bodyIndex] = mass.IsKinematic ? (byte)1 : (byte)0;
@@ -212,45 +202,33 @@ namespace Unity.Physics.Systems
                     var colliders = chunk.GetNativeArray(ref colliderHandle);
                     var transforms = chunk.GetNativeArray(ref transformHandle);
                     var entities = chunk.GetNativeArray(entityHandle);
-                    var worlds = chunk.GetNativeArray(ref localToWorldHandle);
-                    bool hasLocal = transforms.IsCreated;
-                    bool hasWorld = worlds.IsCreated;
                     bool hasParent = chunk.Has(ref parentHandle);
                     for (int i = 0; i < chunk.Count; i++)
                     {
                         var collider = colliders[i];
-                        // We support rigid body entities with various different transformation data components.
-                        // Here, we are extracting their world space transformation and feed it into the underlying
-                        // physics engine for processing in the pipeline (e.g., collision detection, solver, integration).
-                        // If the rigid body has a Parent, we obtain their world space transformation from their up-to date
-                        // LocalToWorld matrix. Any shear or scale in this matrix is ignored and only the rigid body transformation,
-                        // i.e., the position and orientation, is extracted.
-                        // If the rigid body has no Parent, we use the position and orientation of its LocalTransform component as world transform
-                        // if present. Otherwise, we again extract the transformation from the LocalToWorld matrix.
-                        // Copy from Unity.Physics 1.4.5 (com.unity.physics@0dfa150f2a43), PhysicsWorldBuilder.cs:680-697.
+                        var transform = transforms[i];
+                        var entity = entities[i];
                         RigidTransform bodyTransform = RigidTransform.identity;
-                        if (hasParent || !hasLocal)
+                        if (hasParent)
                         {
-                            if (hasWorld)
-                            {
-                                bodyTransform = DecomposeRigidBodyTransform(worlds[i].Value);
-                            }
+                            TransformHelpers.ComputeWorldTransformMatrix(entity, out float4x4 world,
+                                ref transformLookup, ref parentLookup, ref postTransformLookup);
+                            bodyTransform = DecomposeRigidBodyTransform(world);
                         }
                         else
                         {
-                            bodyTransform.pos = transforms[i].Position;
-                            bodyTransform.rot = transforms[i].Rotation;
+                            bodyTransform.pos = transform.Position;
+                            bodyTransform.rot = transform.Rotation;
                         }
-                        float scale = hasLocal ? transforms[i].Scale : 1f;
-                        Aabb2 aabb = collider.Value.CalculateAabb(bodyTransform, scale);
+                        Aabb2 aabb = collider.Value.CalculateAabb(bodyTransform, transform.Scale);
                         aabb.Expand(step.CollisionTolerance * 0.5f);
 
                         bodies[bodyIndex] = new RigidBody
                         {
                             Collider = collider.Value,
                             WorldFromBody = bodyTransform,
-                            Entity = entities[i],
-                            Scale = scale
+                            Entity = entity,
+                            Scale = transform.Scale
                         };
                         eabbs[bodyIndex] = aabb;
                         kinematics[bodyIndex] = 1;
